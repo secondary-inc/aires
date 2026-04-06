@@ -1,0 +1,89 @@
+---
+title: Aires Observability Platform
+description: High-performance, structured observability for modern systems. 1000x more cost-effective than Datadog.
+template: splash
+hero:
+  tagline: "High-performance observability built on Rust, gRPC, and ClickHouse. Structured events from every language. 1000x more cost-effective than Datadog."
+  actions:
+    - text: Quickstart
+      link: /guides/quickstart/
+      icon: right-arrow
+    - text: Architecture
+      link: /guides/architecture/
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Why Aires?
+
+Aires replaces the bloated observability stack (Datadog, Splunk, New Relic) with a single, unified event pipeline. Logs, traces, metrics, and AI agent activity all flow through the same system — structured from the start, stored in ClickHouse, queryable with SQL.
+
+<CardGrid>
+  <Card title="Rust Core SDK" icon="seti:rust">
+    Sub-microsecond event creation. Lock-free batching. gRPC transport with automatic retries. Every other SDK is a thin binding over this core.
+  </Card>
+  <Card title="TypeScript SDK" icon="seti:typescript">
+    NAPI-RS native bindings wrapping the Rust core. Works in Bun and Node. Zero-copy where possible. Falls back to pure JS if the native addon isn't available.
+  </Card>
+  <Card title="Python SDK" icon="seti:python">
+    PyO3 bindings wrapping the Rust core. `pip install aires`. Same performance characteristics as the Rust SDK with a Pythonic API.
+  </Card>
+  <Card title="Elixir Collector" icon="seti:elixir">
+    gRPC server built on `grpc-elixir`. Broadway pipeline for backpressure-aware batched inserts into ClickHouse. Handles millions of events per second.
+  </Card>
+</CardGrid>
+
+## The Stack
+
+<CardGrid>
+  <Card title="Protobuf Schema" icon="document">
+    One `Event` message to rule them all. Logs, traces, metrics, HTTP info, error details, AI agent activity — all in a single, well-defined schema.
+  </Card>
+  <Card title="ClickHouse Storage" icon="server">
+    MergeTree tables with bloom filter indexes. Materialized views for pre-aggregated dashboards. Tiered storage from NVMe to S3 for long-term retention.
+  </Card>
+  <Card title="OpenTelemetry Compatible" icon="random">
+    Ingest OTLP spans and logs directly. Convert OpenTelemetry data to Aires events without changing your existing instrumentation.
+  </Card>
+  <Card title="SQL Queries" icon="magnifier">
+    No proprietary query language. Query your observability data with standard SQL. ClickHouse's columnar engine makes even full-table scans fast.
+  </Card>
+</CardGrid>
+
+## Quick Example
+
+```typescript
+import { aires } from "@aires/sdk"
+
+aires.init({
+  service: "my-api",
+  endpoint: "http://localhost:4317",
+})
+
+aires.info("server started", {
+  attr: { port: "3000", version: "1.2.0" },
+  tags: ["startup"],
+})
+
+aires.error("request failed", {
+  traceId: "abc-123",
+  category: "http",
+  http: { method: "POST", path: "/api/tasks", status: 500, durationMs: 42 },
+  error: { type: "DatabaseError", message: "connection refused", handled: true },
+})
+
+await aires.flush()
+```
+
+## Get Started
+
+<CardGrid>
+  <Card title="Quickstart Guide" icon="rocket">
+    Install the SDK, start the collector, ship events, and query them in ClickHouse — all in 5 minutes. [Read the quickstart →](/guides/quickstart/)
+  </Card>
+  <Card title="Architecture Overview" icon="puzzle">
+    Understand how events flow from your application through gRPC to the collector and into ClickHouse. [See the architecture →](/guides/architecture/)
+  </Card>
+</CardGrid>
