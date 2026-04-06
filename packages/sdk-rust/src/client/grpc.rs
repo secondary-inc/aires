@@ -1,4 +1,5 @@
 use tonic::transport::{Channel, ClientTlsConfig};
+use prost::Message;
 
 use crate::config::AiresConfig;
 use crate::error::{Error, Result};
@@ -34,5 +35,13 @@ impl GrpcClient {
         let mut client = self.inner.clone();
         let response = client.ingest(batch).await?;
         Ok(response.into_inner())
+    }
+
+    /// Ingest pre-serialized bytes (from arena-backed pool).
+    /// Decodes the batch from raw bytes and sends via gRPC.
+    pub async fn ingest_raw(&self, payload: bytes::Bytes) -> Result<proto::IngestResponse> {
+        let batch = proto::EventBatch::decode(payload)
+            .map_err(|e| Error::Serialize(format!("failed to decode batch: {e}")))?;
+        self.ingest(batch).await
     }
 }

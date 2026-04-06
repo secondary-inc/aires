@@ -7,6 +7,7 @@ use crate::config::AiresConfig;
 use crate::client::GrpcClient;
 use crate::event::Event;
 use crate::proto;
+use super::pool::SerializePool;
 
 pub(crate) struct BatchWorker {
     pub rx: Receiver<Event>,
@@ -25,6 +26,14 @@ impl BatchWorker {
             }
         };
 
+        let pool = match SerializePool::new(&self.config) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!("aires: failed to create serialize pool: {e}");
+                return;
+            }
+        };
+
         let mut buffer: Vec<Event> = Vec::with_capacity(self.config.batch_size);
         let mut tick = interval(self.config.batch_timeout);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -33,23 +42,22 @@ impl BatchWorker {
             tokio::select! {
                 _ = tick.tick() => {
                     if !buffer.is_empty() {
-                        self.ship(&client, &mut buffer).await;
+                        self.ship(&client, &pool, &mut buffer).await;
                     }
                 }
                 _ = self.flush_notify.notified() => {
                     self.drain_channel(&mut buffer);
                     if !buffer.is_empty() {
-                        self.ship(&client, &mut buffer).await;
+                        self.ship(&client, &pool, &mut buffer).await;
                     }
                     self.flush_done.notify_one();
                 }
             }
 
-            // Drain available events from channel (non-blocking)
             self.drain_channel(&mut buffer);
 
             if buffer.len() >= self.config.batch_size {
-                self.ship(&client, &mut buffer).await;
+                self.ship(&client, &pool, &mut buffer).await;
             }
         }
     }
@@ -63,7 +71,7 @@ impl BatchWorker {
         }
     }
 
-    async fn ship(&self, client: &GrpcClient, buffer: &mut Vec<Event>) {
+    async fn ship(&self, client: &GrpcClient, pool: &SerializePool, buffer: &mut Vec<Event>) {
         let events: Vec<proto::Event> = buffer
             .drain(..)
             .map(|e| e.into_proto())
@@ -76,9 +84,20 @@ impl BatchWorker {
             sdk_language: "rust".into(),
         };
 
+        // Serialize into arena-backed buffer (lock-free, no global allocator contention)
+        let payload = match pool.serialize_batch(&batch) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                tracing::error!(error = %e, "aires: failed to serialize batch");
+                return;
+            }
+        };
+
+        let event_count = batch.events.len();
+
         let mut retries = 0u32;
         loop {
-            match client.ingest(batch.clone()).await {
+            match client.ingest_raw(payload.clone()).await {
                 Ok(resp) => {
                     if resp.rejected > 0 {
                         tracing::warn!(
@@ -95,7 +114,7 @@ impl BatchWorker {
                         tracing::error!(
                             retries,
                             error = %e,
-                            events = batch.events.len(),
+                            events = event_count,
                             "aires: dropping batch after max retries"
                         );
                         break;
