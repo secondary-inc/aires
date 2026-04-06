@@ -4,8 +4,8 @@ import starlight from "@astrojs/starlight"
 import starlightThemeNova from "starlight-theme-nova"
 
 export default defineConfig({
-  site: "https://secondary-inc.github.io",
-  base: "/aires",
+  site: "https://aires.secondary.ai",
+  base: "/",
   integrations: [
     starlight({
       title: "Aires",
