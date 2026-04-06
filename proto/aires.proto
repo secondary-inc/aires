@@ -1,0 +1,172 @@
+syntax = "proto3";
+
+package aires.v1;
+
+option go_package = "github.com/secondary-inc/aires/proto/airesv1";
+
+// ── Event ───────────────────────────────────────────────────────────────────
+
+// A single observability event. This is the atomic unit of data in Aires.
+// Logs, traces, metrics, and custom events all use this format.
+message Event {
+  // Unique event ID (UUID v7 for time-ordered sorting)
+  string id = 1;
+
+  // Timestamps
+  fixed64 timestamp_ns = 2;        // nanosecond precision unix timestamp
+  fixed64 observed_timestamp_ns = 3; // when the collector received it
+
+  // Identity
+  string service = 4;              // e.g. "workforce-api", "aires-collector"
+  string environment = 5;          // e.g. "production", "staging", "dev"
+  string host = 6;                 // hostname or pod name
+  string instance = 7;             // replica/instance ID
+
+  // Severity
+  Severity severity = 8;
+
+  // Content
+  string message = 9;              // human-readable log line
+  string display_text = 10;        // formatted display text (may include ANSI)
+  bytes body = 11;                 // raw body (for binary payloads)
+
+  // Tracing
+  string trace_id = 12;            // distributed trace ID (W3C format)
+  string span_id = 13;             // span within trace
+  string parent_span_id = 14;      // parent span
+  string subtrace_id = 15;         // sub-trace for nested operations
+
+  // Session
+  string session_id = 16;          // user/agent session ID
+  string user_id = 17;             // authenticated user
+  string agent_id = 18;            // AI agent ID (if applicable)
+
+  // Source
+  string source_file = 19;         // file path where the event originated
+  int32 source_line = 20;          // line number
+  string source_function = 21;     // function/method name
+
+  // Categorization
+  string category = 22;            // e.g. "http", "db", "ai", "auth", "k8s"
+  string kind = 23;                // e.g. "request", "response", "error", "metric"
+  repeated string tags = 24;       // free-form tags
+
+  // Structured data
+  map<string, string> attributes = 25;    // string key-value pairs
+  map<string, bytes> data = 26;           // arbitrary JSON blobs (stored as bytes)
+
+  // Related objects (links to other entities)
+  repeated RelatedObject related = 27;
+
+  // Metrics (when kind = "metric")
+  MetricValue metric = 28;
+
+  // HTTP (when category = "http")
+  HttpInfo http = 29;
+
+  // Error info
+  ErrorInfo error = 30;
+
+  // Resource context (set by collector, not SDK)
+  ResourceInfo resource = 31;
+}
+
+// ── Severity ────────────────────────────────────────────────────────────────
+
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  TRACE = 1;
+  DEBUG = 2;
+  INFO = 3;
+  WARN = 4;
+  ERROR = 5;
+  FATAL = 6;
+}
+
+// ── Related Object ──────────────────────────────────────────────────────────
+
+message RelatedObject {
+  string type = 1;         // e.g. "task", "agent", "workspace", "request"
+  string id = 2;           // entity ID
+  string label = 3;        // human-readable label
+  string url = 4;          // optional deep-link URL
+}
+
+// ── Metric Value ────────────────────────────────────────────────────────────
+
+message MetricValue {
+  string name = 1;         // metric name (e.g. "http.request.duration")
+  double value = 2;        // numeric value
+  string unit = 3;         // e.g. "ms", "bytes", "count"
+  MetricType type = 4;
+}
+
+enum MetricType {
+  METRIC_UNSPECIFIED = 0;
+  GAUGE = 1;
+  COUNTER = 2;
+  HISTOGRAM = 3;
+  SUMMARY = 4;
+}
+
+// ── HTTP Info ───────────────────────────────────────────────────────────────
+
+message HttpInfo {
+  string method = 1;
+  string url = 2;
+  string path = 3;
+  int32 status_code = 4;
+  int64 request_size = 5;
+  int64 response_size = 6;
+  int64 duration_ms = 7;
+  string user_agent = 8;
+  string remote_addr = 9;
+}
+
+// ── Error Info ──────────────────────────────────────────────────────────────
+
+message ErrorInfo {
+  string type = 1;         // error class name
+  string message = 2;      // error message
+  string stack = 3;        // stack trace
+  bool handled = 4;        // was this caught or unhandled?
+}
+
+// ── Resource Info (set by collector) ────────────────────────────────────────
+
+message ResourceInfo {
+  string cluster = 1;      // k8s cluster name
+  string namespace = 2;    // k8s namespace
+  string pod = 3;          // pod name
+  string container = 4;    // container name
+  string node = 5;         // k8s node
+  map<string, string> labels = 6;
+}
+
+// ── Batch ───────────────────────────────────────────────────────────────────
+
+// Events are shipped in batches for efficiency.
+message EventBatch {
+  repeated Event events = 1;
+
+  // SDK metadata
+  string sdk_name = 2;     // e.g. "aires-sdk-rust", "aires-sdk-ts"
+  string sdk_version = 3;
+  string sdk_language = 4;  // "rust", "typescript", "python"
+}
+
+// ── gRPC Service ────────────────────────────────────────────────────────────
+
+service AiresCollector {
+  // Ship a batch of events
+  rpc Ingest(EventBatch) returns (IngestResponse);
+
+  // Stream events continuously (for long-lived processes)
+  rpc IngestStream(stream EventBatch) returns (IngestResponse);
+}
+
+message IngestResponse {
+  int64 accepted = 1;
+  int64 rejected = 2;
+  repeated string errors = 3;
+}

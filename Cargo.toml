@@ -1,0 +1,54 @@
+[workspace]
+resolver = "2"
+members = [
+    "packages/sdk-rust",
+]
+default-members = [
+    "packages/sdk-rust",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+authors = ["Secondary Inc."]
+license = "Proprietary"
+repository = "https://github.com/secondary-inc/aires"
+
+[workspace.dependencies]
+# Proto / gRPC
+prost = "0.13"
+prost-types = "0.13"
+tonic = { version = "0.12", features = ["tls", "tls-roots"] }
+tonic-build = "0.12"
+
+# Async
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+
+# Data
+uuid = { version = "1", features = ["v7"] }
+bytes = "1"
+rmp-serde = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Concurrency
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+arena-alligator = "0.1"
+
+# Observability (we eat our own dogfood)
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+
+# Error handling
+thiserror = "2"
+
+# Testing
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true

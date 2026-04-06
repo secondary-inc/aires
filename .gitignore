@@ -1,0 +1,14 @@
+node_modules/
+dist/
+target/
+_build/
+deps/
+.elixir_ls/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+*.tgz
+*.whl
+.DS_Store

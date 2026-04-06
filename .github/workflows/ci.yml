@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  rust-fmt:
+    name: Rust Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  rust-clippy:
+    name: Rust Clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get install -y protobuf-compiler
+      - run: cargo clippy --all-targets -- -D warnings
+
+  rust-test:
+    name: Rust Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-nextest
+      - run: sudo apt-get install -y protobuf-compiler
+      - run: cargo nextest run --all
+      - run: cargo test --doc
+
+  rust-deny:
+    name: Rust Security (cargo-deny)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-deny
+      - run: cargo deny check
+
+  elixir-test:
+    name: Elixir Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: packages/collector
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27.0'
+          elixir-version: '1.17'
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+      - run: mix format --check-formatted
+
+  ci-complete:
+    name: CI Complete
+    needs: [rust-fmt, rust-clippy, rust-test, rust-deny, elixir-test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Check results
+        run: |
+          if [[ "${{ needs.rust-fmt.result }}" != "success" ]] ||
+             [[ "${{ needs.rust-clippy.result }}" != "success" ]] ||
+             [[ "${{ needs.rust-test.result }}" != "success" ]] ||
+             [[ "${{ needs.rust-deny.result }}" != "success" ]] ||
+             [[ "${{ needs.elixir-test.result }}" != "success" ]]; then
+            echo "One or more jobs failed"
+            exit 1
+          fi
