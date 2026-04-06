@@ -37,7 +37,11 @@ defmodule AiresCollector.Transform do
       error_type: deep_get(event, [:error, :type]) || "",
       error_message: deep_get(event, [:error, :message]) || "",
       error_stack: deep_get(event, [:error, :stack]) || "",
-      error_handled: deep_get(event, [:error, :handled]) || true,
+      error_handled:
+        case deep_get(event, [:error, :handled]) do
+          nil -> true
+          val -> val
+        end,
       sdk_name: sdk_name || "",
       sdk_version: sdk_version || "",
       sdk_language: "rust"

@@ -3,22 +3,16 @@ defmodule AiresCollector.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
-      # ClickHouse connection pool
-      {AiresCollector.Store, []},
-
-      # TODO: gRPC server (requires proto codegen)
-      # {GRPC.Server.Supervisor,
-      #  endpoint: AiresCollector.Endpoint,
-      #  port: port(),
-      #  start_server: true},
-
-      # Broadway pipeline for batched ClickHouse inserts
-      {AiresCollector.Pipeline, []},
-
-      # Telemetry
-      AiresCollector.Telemetry
-    ]
+    children =
+      if Application.get_env(:aires_collector, :start_services, true) do
+        [
+          {AiresCollector.Store, []},
+          {AiresCollector.Pipeline, []},
+          AiresCollector.Telemetry
+        ]
+      else
+        []
+      end
 
     opts = [strategy: :one_for_one, name: AiresCollector.Supervisor]
     Supervisor.start_link(children, opts)
