@@ -3,7 +3,7 @@ use napi_derive::napi;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use aires_sdk::{Aires, AiresConfig, Severity};
+use aires_sdk::Aires;
 
 static INSTANCE: OnceLock<Aires> = OnceLock::new();
 
