@@ -1,0 +1,20 @@
+[package]
+name = "aires-sdk-python"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "aires"
+crate-type = ["cdylib"]
+
+[dependencies]
+aires-sdk = { path = "../sdk-rust" }
+pyo3 = { version = "0.23", features = ["extension-module"] }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+pyo3-build-config = "0.23"

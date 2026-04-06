@@ -1,0 +1,20 @@
+[package]
+name = "aires-sdk-napi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+aires-sdk = { path = "../../sdk-rust" }
+napi = { version = "2", features = ["async", "tokio_rt"] }
+napi-derive = "2"
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+napi-build = "2"

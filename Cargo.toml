@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
     "packages/sdk-rust",
+    "packages/sdk-ts/native",
+    "packages/sdk-python",
 ]
 default-members = [
     "packages/sdk-rust",
