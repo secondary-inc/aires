@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[allow(clippy::large_enum_variant, clippy::result_large_err)]
 pub enum Error {
     #[error("configuration error: {0}")]
     Config(String),

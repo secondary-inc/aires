@@ -1,13 +1,13 @@
 use crossbeam_channel::Receiver;
+use std::sync::Arc;
 use tokio::sync::Notify;
 use tokio::time::interval;
-use std::sync::Arc;
 
-use crate::config::AiresConfig;
+use super::pool::SerializePool;
 use crate::client::GrpcClient;
+use crate::config::AiresConfig;
 use crate::event::Event;
 use crate::proto;
-use super::pool::SerializePool;
 
 pub(crate) struct BatchWorker {
     pub rx: Receiver<Event>,
@@ -72,10 +72,7 @@ impl BatchWorker {
     }
 
     async fn ship(&self, client: &GrpcClient, pool: &SerializePool, buffer: &mut Vec<Event>) {
-        let events: Vec<proto::Event> = buffer
-            .drain(..)
-            .map(|e| e.into_proto())
-            .collect();
+        let events: Vec<proto::Event> = buffer.drain(..).map(|e| e.into_proto()).collect();
 
         let batch = proto::EventBatch {
             events,

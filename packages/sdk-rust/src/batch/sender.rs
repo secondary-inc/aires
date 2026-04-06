@@ -1,11 +1,11 @@
-use crossbeam_channel::{Sender, bounded, TrySendError};
-use tokio::sync::Notify;
+use crossbeam_channel::{Sender, TrySendError, bounded};
 use std::sync::Arc;
+use tokio::sync::Notify;
 
+use super::worker::BatchWorker;
 use crate::config::AiresConfig;
 use crate::error::Result;
 use crate::event::Event;
-use super::worker::BatchWorker;
 
 pub struct BatchSender {
     tx: Sender<Event>,

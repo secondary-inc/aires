@@ -1,5 +1,7 @@
-pub mod client;
+#![allow(clippy::result_large_err)]
+
 pub mod batch;
+pub mod client;
 pub mod config;
 pub mod error;
 pub mod event;

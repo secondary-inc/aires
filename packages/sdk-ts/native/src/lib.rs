@@ -40,20 +40,23 @@ pub fn init(opts: InitOptions) -> Result<()> {
         builder = builder.api_key(key);
     }
 
-    let config = builder.build()
+    let config = builder
+        .build()
         .map_err(|e| Error::from_reason(e.to_string()))?;
 
-    let aires = Aires::from_config(config)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let aires = Aires::from_config(config).map_err(|e| Error::from_reason(e.to_string()))?;
 
-    INSTANCE.set(aires)
+    INSTANCE
+        .set(aires)
         .map_err(|_| Error::from_reason("aires already initialized"))?;
 
     Ok(())
 }
 
 fn get_instance() -> Result<&'static Aires> {
-    INSTANCE.get().ok_or_else(|| Error::from_reason("aires not initialized — call init() first"))
+    INSTANCE
+        .get()
+        .ok_or_else(|| Error::from_reason("aires not initialized — call init() first"))
 }
 
 #[napi(object)]
@@ -73,23 +76,46 @@ pub struct LogOptions {
     pub source_function: Option<String>,
 }
 
-fn apply_opts(mut builder: aires_sdk::EventBuilder<'_>, opts: Option<LogOptions>) -> aires_sdk::EventBuilder<'_> {
+fn apply_opts(
+    mut builder: aires_sdk::EventBuilder<'_>,
+    opts: Option<LogOptions>,
+) -> aires_sdk::EventBuilder<'_> {
     if let Some(o) = opts {
-        if let Some(v) = o.trace_id { builder = builder.trace_id(v); }
-        if let Some(v) = o.span_id { builder = builder.span_id(v); }
-        if let Some(v) = o.session_id { builder = builder.session_id(v); }
-        if let Some(v) = o.user_id { builder = builder.user_id(v); }
-        if let Some(v) = o.agent_id { builder = builder.agent_id(v); }
-        if let Some(v) = o.category { builder = builder.category(v); }
-        if let Some(v) = o.display_text { builder = builder.display_text(v); }
+        if let Some(v) = o.trace_id {
+            builder = builder.trace_id(v);
+        }
+        if let Some(v) = o.span_id {
+            builder = builder.span_id(v);
+        }
+        if let Some(v) = o.session_id {
+            builder = builder.session_id(v);
+        }
+        if let Some(v) = o.user_id {
+            builder = builder.user_id(v);
+        }
+        if let Some(v) = o.agent_id {
+            builder = builder.agent_id(v);
+        }
+        if let Some(v) = o.category {
+            builder = builder.category(v);
+        }
+        if let Some(v) = o.display_text {
+            builder = builder.display_text(v);
+        }
         if let Some(tags) = o.tags {
-            for t in tags { builder = builder.tag(t); }
+            for t in tags {
+                builder = builder.tag(t);
+            }
         }
         if let Some(attrs) = o.attributes {
-            for (k, v) in attrs { builder = builder.attr(k, v); }
+            for (k, v) in attrs {
+                builder = builder.attr(k, v);
+            }
         }
         if let Some(data) = o.data {
-            for (k, v) in data { builder = builder.data(k, v); }
+            for (k, v) in data {
+                builder = builder.data(k, v);
+            }
         }
         if let Some(file) = o.source_file {
             builder = builder.source(

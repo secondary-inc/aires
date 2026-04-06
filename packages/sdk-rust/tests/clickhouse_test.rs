@@ -1,12 +1,10 @@
-/// Integration tests that require a running ClickHouse instance.
-/// Run with: cargo test -p aires-sdk --test clickhouse_test
-///
-/// Requires: docker run -d --name aires-clickhouse -p 8123:8123 clickhouse/clickhouse-server:latest
-/// And the schema from packages/store/migrations/001_events.sql applied.
-
+// Integration tests that require a running ClickHouse instance.
+// Run with: cargo test -p aires-sdk --test clickhouse_test
+//
+// Requires: docker run -d --name aires-clickhouse -p 8123:8123 clickhouse/clickhouse-server:latest
+// And the schema from packages/store/migrations/001_events.sql applied.
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
 
     const CH_URL: &str = "http://localhost:8123/?database=aires";
 

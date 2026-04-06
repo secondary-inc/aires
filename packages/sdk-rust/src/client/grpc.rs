@@ -1,5 +1,5 @@
-use tonic::transport::{Channel, ClientTlsConfig};
 use prost::Message;
+use tonic::transport::{Channel, ClientTlsConfig};
 
 use crate::config::AiresConfig;
 use crate::error::{Error, Result};
@@ -21,10 +21,9 @@ impl GrpcClient {
             endpoint = endpoint.tls_config(tls)?;
         }
 
-        let channel = endpoint
-            .connect()
-            .await
-            .map_err(|e| Error::Connection(format!("failed to connect to {}: {e}", config.endpoint)))?;
+        let channel = endpoint.connect().await.map_err(|e| {
+            Error::Connection(format!("failed to connect to {}: {e}", config.endpoint))
+        })?;
 
         let client = AiresCollectorClient::new(channel);
 

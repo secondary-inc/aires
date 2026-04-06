@@ -3,6 +3,7 @@ use std::time::Duration;
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AiresConfig {
     pub(crate) service: String,
     pub(crate) environment: String,

@@ -7,9 +7,11 @@ defmodule AiresCollector.Application do
       # ClickHouse connection pool
       {AiresCollector.Store, []},
 
-      # gRPC server
-      {GRPC.Server.Supervisor,
-       endpoint: AiresCollector.Endpoint, port: port(), start_server: true},
+      # TODO: gRPC server (requires proto codegen)
+      # {GRPC.Server.Supervisor,
+      #  endpoint: AiresCollector.Endpoint,
+      #  port: port(),
+      #  start_server: true},
 
       # Broadway pipeline for batched ClickHouse inserts
       {AiresCollector.Pipeline, []},
@@ -22,7 +24,8 @@ defmodule AiresCollector.Application do
     Supervisor.start_link(children, opts)
   end
 
-  defp port do
+  @doc false
+  def port do
     System.get_env("GRPC_PORT", "4317") |> String.to_integer()
   end
 end

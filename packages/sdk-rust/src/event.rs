@@ -2,8 +2,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use uuid::Uuid;
 
-use crate::proto;
 use crate::Aires;
+use crate::proto;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {

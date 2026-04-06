@@ -1,8 +1,7 @@
 use std::num::NonZeroUsize;
 
 use arena_alligator::FixedArena;
-use bytes::BufMut;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use prost::Message;
 
 // Include proto definitions

@@ -1,4 +1,4 @@
-use aires_sdk::{AiresConfig, AiresConfigBuilder};
+use aires_sdk::AiresConfigBuilder;
 use std::time::Duration;
 
 #[test]
