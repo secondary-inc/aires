@@ -1,12 +1,16 @@
 // @ts-check
 import { defineConfig } from "astro/config"
 import starlight from "@astrojs/starlight"
+import starlightThemeNova from "starlight-theme-nova"
 
 export default defineConfig({
+  site: "https://secondary-inc.github.io",
+  base: "/aires",
   integrations: [
     starlight({
       title: "Aires",
       description: "High-performance observability for modern applications",
+      plugins: [starlightThemeNova()],
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/secondary-inc/aires" },
       ],
