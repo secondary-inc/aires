@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS events (
     -- Identity
     id UUID DEFAULT generateUUIDv4(),
-    timestamp DateTime64(9, 'UTC'),
+    timestamp DateTime64(9, 'UTC') DEFAULT now64(9),
     observed_timestamp DateTime64(9, 'UTC') DEFAULT now64(9),
 
     -- Classification
