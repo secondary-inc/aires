@@ -18,6 +18,7 @@ export default defineConfig({
             { label: "Overview", slug: "guides/overview" },
             { label: "Quick Start", slug: "guides/quickstart" },
             { label: "Architecture", slug: "guides/architecture" },
+            { label: "Benchmarks", slug: "guides/benchmarks" },
           ],
         },
         {
