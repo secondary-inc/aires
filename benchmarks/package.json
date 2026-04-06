@@ -1,0 +1,19 @@
+{
+  "name": "aires-benchmarks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "bun run bench.ts",
+    "bench:pino": "bun run bench-pino.ts",
+    "bench:winston": "bun run bench-winston.ts",
+    "bench:aires": "bun run bench-aires.ts",
+    "bench:all": "bun run bench.ts"
+  },
+  "dependencies": {
+    "pino": "^9.6.0",
+    "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.4"
+  }
+}
