@@ -15,5 +15,5 @@
     "registry": "https://npm.rome.2nd.sh/"
   },
   "author": { "name": "Secondary Inc." },
-  "license": "Proprietary"
+  "license": "MIT"
 }

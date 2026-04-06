@@ -14,7 +14,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 authors = ["Secondary Inc."]
-license = "Proprietary"
+license = "MIT"
 repository = "https://github.com/secondary-inc/aires"
 
 [workspace.dependencies]
