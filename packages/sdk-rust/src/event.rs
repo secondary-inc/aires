@@ -281,19 +281,67 @@ mod tests {
     #[test]
     fn severity_proto_roundtrip() {
         assert_eq!(Severity::Trace.to_proto(), proto::Severity::Trace as i32);
+        assert_eq!(Severity::Debug.to_proto(), proto::Severity::Debug as i32);
+        assert_eq!(Severity::Info.to_proto(), proto::Severity::Info as i32);
+        assert_eq!(Severity::Warn.to_proto(), proto::Severity::Warn as i32);
+        assert_eq!(Severity::Error.to_proto(), proto::Severity::Error as i32);
         assert_eq!(Severity::Fatal.to_proto(), proto::Severity::Fatal as i32);
     }
 
     #[test]
-    fn event_builder_sets_fields() {
-        // We can't call emit() without an Aires instance,
-        // but we can verify the builder populates fields
-        let event = proto::Event {
-            id: "test".into(),
-            message: "hello".into(),
-            ..Default::default()
+    fn severity_equality() {
+        assert_eq!(Severity::Info, Severity::Info);
+        assert_ne!(Severity::Info, Severity::Error);
+    }
+
+    #[test]
+    fn event_accessors() {
+        let event = Event {
+            inner: proto::Event {
+                id: "evt-001".into(),
+                message: "test message".into(),
+                trace_id: "trace-abc".into(),
+                span_id: "span-xyz".into(),
+                session_id: "sess-123".into(),
+                ..Default::default()
+            },
         };
-        let wrapped = Event { inner: event };
-        assert_eq!(wrapped.message(), "hello");
+        assert_eq!(event.id(), "evt-001");
+        assert_eq!(event.message(), "test message");
+        assert_eq!(event.trace_id(), "trace-abc");
+        assert_eq!(event.span_id(), "span-xyz");
+        assert_eq!(event.session_id(), "sess-123");
+    }
+
+    #[test]
+    fn event_into_proto_preserves_data() {
+        let event = Event {
+            inner: proto::Event {
+                id: "x".into(),
+                message: "y".into(),
+                service: "test-svc".into(),
+                ..Default::default()
+            },
+        };
+        let proto = event.into_proto();
+        assert_eq!(proto.id, "x");
+        assert_eq!(proto.message, "y");
+        assert_eq!(proto.service, "test-svc");
+    }
+
+    #[test]
+    fn now_ns_returns_nonzero() {
+        let ns = now_ns();
+        assert!(ns > 0);
+    }
+
+    #[test]
+    fn now_ns_is_roughly_current() {
+        let ns = now_ns();
+        let secs = ns / 1_000_000_000;
+        // Should be after 2024-01-01
+        assert!(secs > 1_704_067_200);
+        // Should be before 2100-01-01
+        assert!(secs < 4_102_444_800);
     }
 }

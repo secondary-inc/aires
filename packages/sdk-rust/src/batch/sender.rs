@@ -56,7 +56,71 @@ impl BatchSender {
 
     pub fn flush_sync(&self) {
         self.flush_notify.notify_one();
-        // Best-effort: give the worker a moment to drain
         std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crossbeam_channel::bounded;
+
+    use crate::event::Event;
+    use crate::proto;
+
+    fn make_event(msg: &str) -> Event {
+        Event {
+            inner: proto::Event {
+                id: "test".into(),
+                message: msg.into(),
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn channel_accepts_events_up_to_capacity() {
+        let (tx, _rx) = bounded::<Event>(4);
+        assert!(tx.try_send(make_event("a")).is_ok());
+        assert!(tx.try_send(make_event("b")).is_ok());
+        assert!(tx.try_send(make_event("c")).is_ok());
+        assert!(tx.try_send(make_event("d")).is_ok());
+    }
+
+    #[test]
+    fn channel_rejects_when_full() {
+        let (tx, _rx) = bounded::<Event>(2);
+        assert!(tx.try_send(make_event("a")).is_ok());
+        assert!(tx.try_send(make_event("b")).is_ok());
+        assert!(tx.try_send(make_event("c")).is_err());
+    }
+
+    #[test]
+    fn channel_drain_frees_capacity() {
+        let (tx, rx) = bounded::<Event>(2);
+        tx.try_send(make_event("a")).unwrap();
+        tx.try_send(make_event("b")).unwrap();
+        assert!(tx.try_send(make_event("c")).is_err());
+
+        let _ = rx.try_recv().unwrap();
+        assert!(tx.try_send(make_event("c")).is_ok());
+    }
+
+    #[test]
+    fn channel_preserves_order() {
+        let (tx, rx) = bounded::<Event>(8);
+        tx.try_send(make_event("first")).unwrap();
+        tx.try_send(make_event("second")).unwrap();
+        tx.try_send(make_event("third")).unwrap();
+
+        assert_eq!(rx.try_recv().unwrap().message(), "first");
+        assert_eq!(rx.try_recv().unwrap().message(), "second");
+        assert_eq!(rx.try_recv().unwrap().message(), "third");
+    }
+
+    #[test]
+    fn disconnected_channel_reports_error() {
+        let (tx, rx) = bounded::<Event>(4);
+        drop(rx);
+        assert!(tx.try_send(make_event("orphan")).is_err());
     }
 }
