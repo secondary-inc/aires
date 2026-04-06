@@ -1,60 +1,164 @@
-/**
- * @aires/sdk — TypeScript observability SDK
- *
- * Usage:
- *   import { aires } from "@aires/sdk"
- *
- *   aires.init({ service: "workforce-api", endpoint: "https://collector:4317" })
- *
- *   aires.info("server started", { attr: { port: "4000" } })
- *   aires.error("request failed", { traceId, category: "http", http: { method, path, status } })
- *   aires.span("process-task", { traceId, agentId })
- *   aires.metric("http.latency", 42.5, { tags: ["api"] })
- *
- *   await aires.flush()
- */
+import { AsyncLocalStorage } from "node:async_hooks"
 
-// Native bindings (compiled from Rust via NAPI-RS)
-// Falls back to pure JS gRPC client if native addon isn't available
-let native: any = null
+// ── Types ───────────────────────────────────────────────────────────────────
 
-try {
-  native = require("../native/aires-sdk-napi.node")
-} catch {
-  // Native addon not built — will use pure JS fallback
+type Attrs = Record<string, unknown>
+
+type Level = "trace" | "debug" | "info" | "warn" | "error" | "fatal"
+
+type SpanHandle = {
+  end: () => void
+  log: Logger
 }
 
-export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal"
+// ── Promoted fields ─────────────────────────────────────────────────────────
+// These keys get extracted from attrs and placed into dedicated proto fields
+// for ClickHouse indexing. Everything else stays in the attr map.
 
-export type LogOptions = {
-  traceId?: string
-  spanId?: string
-  sessionId?: string
-  userId?: string
-  agentId?: string
-  category?: string
-  displayText?: string
-  tags?: string[]
-  attr?: Record<string, string>
-  data?: Record<string, unknown>
+const PROMOTED = new Set([
+  "traceId", "spanId", "parentSpanId", "subtraceId",
+  "sessionId", "userId",
+])
+
+const HTTP_FIELDS = new Set([
+  "method", "path", "status", "durationMs",
+  "requestSize", "responseSize", "userAgent", "remoteAddr",
+])
+
+const ERROR_FIELDS = new Set(["type", "message", "stack", "handled"])
+
+// ── Event Buffer ────────────────────────────────────────────────────────────
+
+type RawEvent = {
+  level: Level
+  message: string
+  attrs: Attrs
+  ts: number
   file?: string
   line?: number
-  fn?: string
-  http?: {
-    method: string
-    path: string
-    status: number
-    durationMs: number
-  }
-  error?: {
-    type: string
-    message: string
-    stack?: string
-    handled?: boolean
+}
+
+let _buffer: RawEvent[] = []
+let _emitter: ((event: RawEvent) => void) | null = null
+let _service = ""
+let _environment = ""
+
+const emit = (event: RawEvent) => {
+  if (_emitter) {
+    _emitter(event)
+  } else {
+    _buffer.push(event)
   }
 }
 
-export type InitOptions = {
+// ── Scope (AsyncLocalStorage) ───────────────────────────────────────────────
+
+const _store = new AsyncLocalStorage<Attrs>()
+
+const currentScope = (): Attrs => _store.getStore() || {}
+
+// ── Source Location ─────────────────────────────────────────────────────────
+
+const captureSource = (): { file?: string, line?: number } => {
+  const obj: any = {}
+  Error.captureStackTrace(obj, captureSource)
+  const frame = obj.stack?.split("\n")[2]
+  if (!frame) return {}
+  const match = frame.match(/(?:at\s+)?(?:.*?\s+\()?(.+?):(\d+):\d+\)?/)
+  if (!match) return {}
+  return { file: match[1], line: parseInt(match[2]) }
+}
+
+// ── Logger ──────────────────────────────────────────────────────────────────
+
+type Logger = {
+  (message: string, attrs?: Attrs): void
+
+  trace: (message: string, attrs?: Attrs) => void
+  debug: (message: string, attrs?: Attrs) => void
+  info: (message: string, attrs?: Attrs) => void
+  warn: (message: string, attrs?: Attrs) => void
+  error: (message: string, attrs?: Attrs) => void
+  fatal: (message: string, attrs?: Attrs) => void
+
+  with: (attrs: Attrs) => Logger
+  scope: <T>(attrs: Attrs, fn: () => T | Promise<T>) => T | Promise<T>
+  span: (name: string, attrs?: Attrs) => SpanHandle
+  metric: (name: string, value: number, attrs?: Attrs) => void
+}
+
+const createLogger = (base: Attrs = {}): Logger => {
+  const resolve = (extra?: Attrs): Attrs => ({
+    ...currentScope(),
+    ...base,
+    ...extra,
+  })
+
+  const emitLog = (level: Level, message: string, extra?: Attrs) => {
+    const source = captureSource()
+    emit({
+      level,
+      message,
+      attrs: resolve(extra),
+      ts: Date.now(),
+      ...source,
+    })
+  }
+
+  const logger: any = (message: string, attrs?: Attrs) => emitLog("info", message, attrs)
+
+  logger.trace = (message: string, attrs?: Attrs) => emitLog("trace", message, attrs)
+  logger.debug = (message: string, attrs?: Attrs) => emitLog("debug", message, attrs)
+  logger.info = (message: string, attrs?: Attrs) => emitLog("info", message, attrs)
+  logger.warn = (message: string, attrs?: Attrs) => emitLog("warn", message, attrs)
+  logger.error = (message: string, attrs?: Attrs) => emitLog("error", message, attrs)
+  logger.fatal = (message: string, attrs?: Attrs) => emitLog("fatal", message, attrs)
+
+  logger.with = (attrs: Attrs): Logger => createLogger({ ...base, ...attrs })
+
+  logger.scope = <T>(attrs: Attrs, fn: () => T | Promise<T>): T | Promise<T> =>
+    _store.run({ ...currentScope(), ...base, ...attrs }, fn)
+
+  logger.span = (name: string, attrs?: Attrs): SpanHandle => {
+    const spanId = crypto.randomUUID()
+    const start = performance.now()
+    const merged = { ...base, ...attrs, spanId }
+
+    emitLog("info", `span:start ${name}`, { ...merged, _span: "start", _spanName: name })
+
+    return {
+      end: () => {
+        const durationMs = Math.round(performance.now() - start)
+        emitLog("info", `span:end ${name}`, {
+          ...merged,
+          _span: "end",
+          _spanName: name,
+          durationMs: String(durationMs),
+        })
+      },
+      log: createLogger(merged),
+    }
+  }
+
+  logger.metric = (name: string, value: number, attrs?: Attrs) => {
+    emit({
+      level: "info",
+      message: name,
+      attrs: { ...resolve(attrs), _metric: name, _metricValue: String(value) },
+      ts: Date.now(),
+    })
+  }
+
+  return logger as Logger
+}
+
+// ── Global Logger ───────────────────────────────────────────────────────────
+
+export const log: Logger = createLogger()
+
+// ── Init + Console Patching ─────────────────────────────────────────────────
+
+type InitOptions = {
   service: string
   endpoint: string
   environment?: string
@@ -64,35 +168,17 @@ export type InitOptions = {
   apiKey?: string
 }
 
-const toNativeOpts = (opts?: LogOptions) => {
-  if (!opts) return undefined
-  return {
-    trace_id: opts.traceId,
-    span_id: opts.spanId,
-    session_id: opts.sessionId,
-    user_id: opts.userId,
-    agent_id: opts.agentId,
-    category: opts.category,
-    display_text: opts.displayText,
-    tags: opts.tags,
-    attributes: opts.attr,
-    data: opts.data ? Object.fromEntries(
-      Object.entries(opts.data).map(([k, v]) => [k, JSON.stringify(v)])
-    ) : undefined,
-    source_file: opts.file,
-    source_line: opts.line,
-    source_function: opts.fn,
-  }
-}
-
-// In-memory buffer for when native addon isn't available
-let fallbackBuffer: Array<{ level: string, message: string, opts?: LogOptions, ts: number }> = []
-let initialized = false
+let _native: any = null
 
 export const aires = {
   init(opts: InitOptions) {
-    if (native) {
-      native.init({
+    _service = opts.service
+    _environment = opts.environment || "production"
+
+    // Try native addon
+    try {
+      _native = require("../native/aires-sdk-napi.node")
+      _native.init({
         service: opts.service,
         endpoint: opts.endpoint,
         environment: opts.environment,
@@ -101,58 +187,192 @@ export const aires = {
         tls: opts.tls,
         api_key: opts.apiKey,
       })
+    } catch {
+      // Native not available — use fallback
     }
-    initialized = true
-  },
 
-  trace: (message: string, opts?: LogOptions) => {
-    if (native) return native.trace(message, toNativeOpts(opts))
-    fallbackBuffer.push({ level: "trace", message, opts, ts: Date.now() })
-  },
+    // Set up emitter
+    _emitter = (event) => {
+      if (_native) {
+        const promoted: any = {}
+        const attr: Record<string, string> = {}
 
-  debug: (message: string, opts?: LogOptions) => {
-    if (native) return native.debug(message, toNativeOpts(opts))
-    fallbackBuffer.push({ level: "debug", message, opts, ts: Date.now() })
-  },
+        for (const [k, v] of Object.entries(event.attrs)) {
+          if (PROMOTED.has(k)) {
+            promoted[k] = String(v)
+          } else if (v !== undefined && v !== null) {
+            attr[k] = typeof v === "string" ? v : JSON.stringify(v)
+          }
+        }
 
-  info: (message: string, opts?: LogOptions) => {
-    if (native) return native.info(message, toNativeOpts(opts))
-    fallbackBuffer.push({ level: "info", message, opts, ts: Date.now() })
-  },
+        const nativeOpts: any = {
+          trace_id: promoted.traceId,
+          span_id: promoted.spanId,
+          session_id: promoted.sessionId,
+          user_id: promoted.userId,
+          attributes: attr,
+          source_file: event.file,
+          source_line: event.line,
+        }
 
-  warn: (message: string, opts?: LogOptions) => {
-    if (native) return native.warn(message, toNativeOpts(opts))
-    fallbackBuffer.push({ level: "warn", message, opts, ts: Date.now() })
-  },
-
-  error: (message: string, opts?: LogOptions) => {
-    if (native) return native.error(message, toNativeOpts(opts))
-    fallbackBuffer.push({ level: "error", message, opts, ts: Date.now() })
-  },
-
-  fatal: (message: string, opts?: LogOptions) => {
-    if (native) return native.fatal(message, toNativeOpts(opts))
-    fallbackBuffer.push({ level: "fatal", message, opts, ts: Date.now() })
-  },
-
-  span: (name: string, opts?: LogOptions) => {
-    if (native) return native.span(name, toNativeOpts(opts))
-    fallbackBuffer.push({ level: "span", message: name, opts, ts: Date.now() })
-  },
-
-  metric: (name: string, value: number, opts?: LogOptions) => {
-    if (native) return native.metric(name, value, toNativeOpts(opts))
-    fallbackBuffer.push({ level: "metric", message: `${name}=${value}`, opts, ts: Date.now() })
-  },
-
-  flush: async () => {
-    if (native) return native.flush()
-    // Fallback: dump buffer to stdout as JSON lines
-    for (const entry of fallbackBuffer) {
-      console.log(JSON.stringify(entry))
+        switch (event.level) {
+          case "trace": _native.trace(event.message, nativeOpts); break
+          case "debug": _native.debug(event.message, nativeOpts); break
+          case "info": _native.info(event.message, nativeOpts); break
+          case "warn": _native.warn(event.message, nativeOpts); break
+          case "error": _native.error(event.message, nativeOpts); break
+          case "fatal": _native.fatal(event.message, nativeOpts); break
+        }
+      } else {
+        // Fallback: structured JSON to stdout
+        const { level, message, attrs, ts, file, line } = event
+        const out: any = { ts: new Date(ts).toISOString(), level, message, service: _service }
+        if (file) out.file = `${file}:${line}`
+        const attrKeys = Object.keys(attrs)
+        if (attrKeys.length > 0) out.attrs = attrs
+        process.stdout.write(JSON.stringify(out) + "\n")
+      }
     }
-    fallbackBuffer = []
+
+    // Flush buffered events
+    for (const event of _buffer) {
+      _emitter(event)
+    }
+    _buffer = []
+  },
+
+  patchConsole() {
+    const original = {
+      log: console.log,
+      debug: console.debug,
+      info: console.info,
+      warn: console.warn,
+      error: console.error,
+    }
+
+    console.log = (...args: unknown[]) => {
+      const message = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")
+      log.info(message, { _source: "console.log" })
+      original.log.apply(console, args)
+    }
+
+    console.debug = (...args: unknown[]) => {
+      const message = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")
+      log.debug(message, { _source: "console.debug" })
+      original.debug.apply(console, args)
+    }
+
+    console.info = (...args: unknown[]) => {
+      const message = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")
+      log.info(message, { _source: "console.info" })
+      original.info.apply(console, args)
+    }
+
+    console.warn = (...args: unknown[]) => {
+      const message = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")
+      log.warn(message, { _source: "console.warn" })
+      original.warn.apply(console, args)
+    }
+
+    console.error = (...args: unknown[]) => {
+      const message = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")
+      log.error(message, { _source: "console.error" })
+      original.error.apply(console, args)
+    }
+  },
+
+  async flush() {
+    if (_native) await _native.flush()
   },
 }
 
-export default aires
+// ── Elysia Plugin ───────────────────────────────────────────────────────────
+
+type PluginOptions = {
+  /** Auto-log request/response (default: true) */
+  logRequests?: boolean
+  /** Header to extract trace ID from (default: x-trace-id) */
+  traceHeader?: string
+  /** Header to extract session ID from (default: x-session-id) */
+  sessionHeader?: string
+}
+
+export const airesPlugin = (opts?: PluginOptions) => {
+  const logRequests = opts?.logRequests !== false
+  const traceHeader = opts?.traceHeader || "x-trace-id"
+  const sessionHeader = opts?.sessionHeader || "x-session-id"
+
+  return (app: any) => {
+    app.onRequest(({ request, store }: any) => {
+      const traceId = request.headers.get(traceHeader) || crypto.randomUUID()
+      const sessionId = request.headers.get(sessionHeader) || ""
+      const start = performance.now()
+
+      store._aires = { traceId, sessionId, start }
+    })
+
+    app.onBeforeHandle(({ request, store }: any) => {
+      const { traceId, sessionId } = store._aires || {}
+      // Run the handler inside an AsyncLocalStorage scope
+      // so all log() calls inherit the trace context
+      return _store.run(
+        { traceId, sessionId, ...(store._aires?.extra || {}) },
+        () => undefined,
+      )
+    })
+
+    // Wrap each handler to run inside the scope
+    app.derive(({ request, store }: any) => {
+      const { traceId, sessionId } = store._aires || {}
+
+      return {
+        get log() {
+          return createLogger({ traceId, sessionId })
+        },
+      }
+    })
+
+    if (logRequests) {
+      app.onAfterHandle(({ request, set, store }: any) => {
+        const { traceId, sessionId, start } = store._aires || {}
+        const durationMs = Math.round(performance.now() - start)
+        const url = new URL(request.url)
+
+        log.info("request", {
+          traceId,
+          sessionId,
+          method: request.method,
+          path: url.pathname,
+          status: String(set.status || 200),
+          durationMs: String(durationMs),
+          _category: "http",
+        })
+      })
+
+      app.onError(({ request, error, set, store }: any) => {
+        const { traceId, sessionId, start } = store._aires || {}
+        const durationMs = Math.round(performance.now() - start)
+        const url = new URL(request.url)
+
+        log.error("request failed", {
+          traceId,
+          sessionId,
+          method: request.method,
+          path: url.pathname,
+          status: String(set.status || 500),
+          durationMs: String(durationMs),
+          errorType: error?.constructor?.name,
+          errorMessage: error?.message,
+          _category: "http",
+        })
+      })
+    }
+
+    return app
+  }
+}
+
+// ── Convenience re-exports ──────────────────────────────────────────────────
+
+export { log as default }
+export type { Attrs, Level, Logger, SpanHandle, InitOptions, PluginOptions }
