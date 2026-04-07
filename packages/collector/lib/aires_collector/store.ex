@@ -42,113 +42,77 @@ defmodule AiresCollector.Store do
     {:reply, result, state}
   end
 
-  @columns [
-    :id,
-    :timestamp,
-    :service,
-    :environment,
-    :severity,
-    :message,
-    :display_text,
-    :trace_id,
-    :span_id,
-    :parent_span_id,
-    :subtrace_id,
-    :session_id,
-    :user_id,
-    :agent_id,
-    :source_file,
-    :source_line,
-    :source_function,
-    :category,
-    :kind,
-    :http_method,
-    :http_path,
-    :http_status_code,
-    :http_duration_ms,
-    :metric_name,
-    :metric_value,
-    :error_type,
-    :error_message,
-    :error_stack,
-    :error_handled,
-    :sdk_name,
-    :sdk_version,
-    :sdk_language
-  ]
-
-  defp do_insert(_conn, rows) when rows == [], do: :ok
+  defp do_insert(_conn, []), do: :ok
 
   defp do_insert(conn, rows) do
-    col_names = Enum.map_join(@columns, ", ", &Atom.to_string/1)
+    columns = [
+      :service,
+      :environment,
+      :severity,
+      :message,
+      :display_text,
+      :trace_id,
+      :span_id,
+      :parent_span_id,
+      :subtrace_id,
+      :session_id,
+      :user_id,
+      :agent_id,
+      :source_file,
+      :source_line,
+      :source_function,
+      :category,
+      :kind,
+      :http_method,
+      :http_path,
+      :http_status_code,
+      :http_duration_ms,
+      :metric_name,
+      :metric_value,
+      :error_type,
+      :error_message,
+      :error_stack,
+      :error_handled,
+      :sdk_name,
+      :sdk_version,
+      :sdk_language
+    ]
 
-    _types =
-      Enum.map(@columns, fn col ->
-        case col do
-          :id -> "UUID"
-          :timestamp -> "DateTime64(9, 'UTC')"
-          :source_line -> "UInt32"
-          :http_status_code -> "UInt16"
-          :http_duration_ms -> "Int64"
-          :metric_value -> "Float64"
-          :error_handled -> "Bool"
-          _ -> "String"
-        end
+    col_names = Enum.map_join(columns, ", ", &Atom.to_string/1)
+
+    values =
+      Enum.map_join(rows, ", ", fn row ->
+        vals =
+          Enum.map_join(columns, ", ", fn col ->
+            val = Map.get(row, col)
+
+            case col do
+              :source_line -> to_string(val || 0)
+              :http_status_code -> to_string(val || 0)
+              :http_duration_ms -> to_string(val || 0)
+              :metric_value -> to_string(val || 0.0)
+              :error_handled -> if val == false, do: "0", else: "1"
+              _ -> escape_string(val)
+            end
+          end)
+
+        "(#{vals})"
       end)
 
-    row_data =
-      Enum.map(rows, fn row ->
-        Enum.map(@columns, fn col ->
-          val = Map.get(row, col)
-
-          case col do
-            :id ->
-              case val do
-                nil -> :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
-                "" -> :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
-                v -> v
-              end
-
-            :timestamp ->
-              case val do
-                %DateTime{} = dt -> DateTime.to_iso8601(dt)
-                _ -> DateTime.to_iso8601(DateTime.utc_now())
-              end
-
-            :source_line ->
-              val || 0
-
-            :http_status_code ->
-              val || 0
-
-            :http_duration_ms ->
-              val || 0
-
-            :metric_value ->
-              val || 0.0
-
-            :error_handled ->
-              if val == false, do: 0, else: 1
-
-            _ ->
-              val || ""
-          end
-        end)
-      end)
-
-    placeholders = Enum.map_join(@columns, ", ", fn _ -> "?" end)
-    sql = "INSERT INTO events (#{col_names}) VALUES (#{placeholders})"
+    sql = "INSERT INTO events (#{col_names}) VALUES #{values}"
 
     try do
-      Enum.each(row_data, fn params ->
-        Ch.query!(conn, sql, params)
-      end)
-
+      Ch.query!(conn, sql)
+      Logger.info("[Store] Inserted #{length(rows)} events")
       :ok
     rescue
       e ->
-        Logger.error("[Store] Insert failed: #{inspect(e)}")
+        Logger.error("[Store] Insert failed: #{Exception.message(e)}")
         {:error, Exception.message(e)}
     end
   end
+
+  defp escape_string(nil), do: "''"
+  defp escape_string(val) when is_binary(val), do: "'#{String.replace(val, "'", "\\'")}'"
+  defp escape_string(val), do: "'#{to_string(val)}'"
 end
