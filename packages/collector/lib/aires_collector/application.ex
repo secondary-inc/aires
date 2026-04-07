@@ -8,7 +8,8 @@ defmodule AiresCollector.Application do
         [
           {AiresCollector.Store, []},
           {AiresCollector.Pipeline, []},
-          AiresCollector.Telemetry
+          {GRPC.Server.Supervisor,
+           endpoint: AiresCollector.Endpoint, port: port(), start_server: true}
         ]
       else
         []
@@ -18,7 +19,6 @@ defmodule AiresCollector.Application do
     Supervisor.start_link(children, opts)
   end
 
-  @doc false
   def port do
     System.get_env("GRPC_PORT", "4317") |> String.to_integer()
   end
