@@ -12,17 +12,27 @@ defmodule AiresCollector.Server do
       "[Server] Received batch: #{length(events)} events from #{sdk_name}/#{sdk_version}"
     )
 
-    case AiresCollector.Pipeline.ingest(events, sdk_name, sdk_version) do
-      {:ok, accepted, rejected, _errors} ->
+    rows =
+      Enum.map(events, fn event ->
+        AiresCollector.Transform.event_to_row(event, sdk_name, sdk_version)
+      end)
+
+    case AiresCollector.Store.insert_batch(rows) do
+      :ok ->
         %Aires.V1.IngestResponse{
-          accepted: accepted,
-          rejected: rejected,
+          accepted: length(events),
+          rejected: 0,
           errors: []
         }
 
       {:error, reason} ->
-        Logger.error("[Server] Ingestion failed: #{inspect(reason)}")
-        raise GRPC.RPCError, status: :internal, message: "ingestion failed: #{inspect(reason)}"
+        Logger.error("[Server] Insert failed: #{reason}")
+
+        %Aires.V1.IngestResponse{
+          accepted: 0,
+          rejected: length(events),
+          errors: [reason]
+        }
     end
   end
 
@@ -33,12 +43,14 @@ defmodule AiresCollector.Server do
         sdk_name = request.sdk_name || ""
         sdk_version = request.sdk_version || ""
 
-        case AiresCollector.Pipeline.ingest(events, sdk_name, sdk_version) do
-          {:ok, accepted, rejected, _} ->
-            {acc + accepted, rej + rejected}
+        rows =
+          Enum.map(events, fn event ->
+            AiresCollector.Transform.event_to_row(event, sdk_name, sdk_version)
+          end)
 
-          {:error, _} ->
-            {acc, rej + length(events)}
+        case AiresCollector.Store.insert_batch(rows) do
+          :ok -> {acc + length(events), rej}
+          {:error, _} -> {acc, rej + length(events)}
         end
       end)
 

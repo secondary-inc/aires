@@ -7,7 +7,6 @@ defmodule AiresCollector.Application do
       if Application.get_env(:aires_collector, :start_services, true) do
         [
           {AiresCollector.Store, []},
-          {AiresCollector.Pipeline, []},
           {GRPC.Server.Supervisor,
            endpoint: AiresCollector.Endpoint, port: port(), start_server: true}
         ]
