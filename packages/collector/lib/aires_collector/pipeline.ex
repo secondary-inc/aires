@@ -28,7 +28,7 @@ defmodule AiresCollector.Pipeline do
       end)
 
     accepted = length(rows)
-    Broadway.push_messages(__MODULE__, Enum.map(rows, &wrap_message/1))
+    AiresCollector.Pipeline.Producer.push(rows)
     {:ok, accepted, 0, []}
   end
 
@@ -51,12 +51,5 @@ defmodule AiresCollector.Pipeline do
           Broadway.Message.failed(msg, reason)
         end)
     end
-  end
-
-  defp wrap_message(row) do
-    %Broadway.Message{
-      data: row,
-      acknowledger: {Broadway.NoopAcknowledger, nil, nil}
-    }
   end
 end
