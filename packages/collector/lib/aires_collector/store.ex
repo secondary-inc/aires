@@ -58,7 +58,8 @@ defmodule AiresCollector.Store do
   defp do_insert(_conn, []), do: :ok
 
   defp do_insert(conn, rows) do
-    columns = [
+    # Scalar columns (string, int, enum)
+    scalar_columns = [
       :service,
       :environment,
       :severity,
@@ -76,12 +77,15 @@ defmodule AiresCollector.Store do
       :source_function,
       :category,
       :kind,
+      :host,
+      :instance,
       :http_method,
       :http_path,
       :http_status_code,
       :http_duration_ms,
       :metric_name,
       :metric_value,
+      :metric_unit,
       :error_type,
       :error_message,
       :error_stack,
@@ -91,12 +95,15 @@ defmodule AiresCollector.Store do
       :sdk_language
     ]
 
-    col_names = Enum.map_join(columns, ", ", &Atom.to_string/1)
+    # Map and Array columns handled separately
+    all_col_names =
+      Enum.map_join(scalar_columns, ", ", &Atom.to_string/1) <>
+        ", attributes, data, tags"
 
     values =
       Enum.map_join(rows, ", ", fn row ->
-        vals =
-          Enum.map_join(columns, ", ", fn col ->
+        scalar_vals =
+          Enum.map_join(scalar_columns, ", ", fn col ->
             val = Map.get(row, col)
 
             case col do
@@ -109,10 +116,17 @@ defmodule AiresCollector.Store do
             end
           end)
 
-        "(#{vals})"
+        # Format Map(String, String) columns
+        attrs = format_map(Map.get(row, :attributes))
+        data_map = format_map(Map.get(row, :data))
+
+        # Format Array(String) column
+        tags = format_array(Map.get(row, :tags))
+
+        "(#{scalar_vals}, #{attrs}, #{data_map}, #{tags})"
       end)
 
-    sql = "INSERT INTO events (#{col_names}) VALUES #{values}"
+    sql = "INSERT INTO events (#{all_col_names}) VALUES #{values}"
 
     try do
       Ch.query!(conn, sql)
@@ -124,6 +138,32 @@ defmodule AiresCollector.Store do
         {:error, Exception.message(e)}
     end
   end
+
+  # Format an Elixir map as ClickHouse Map(String, String) literal
+  defp format_map(nil), do: "map()"
+  defp format_map(m) when is_map(m) and map_size(m) == 0, do: "map()"
+
+  defp format_map(m) when is_map(m) do
+    entries =
+      Enum.map_join(m, ", ", fn {k, v} ->
+        "#{escape_string(to_string(k))}, #{escape_string(to_string(v))}"
+      end)
+
+    "map(#{entries})"
+  end
+
+  defp format_map(_), do: "map()"
+
+  # Format a list as ClickHouse Array(String) literal
+  defp format_array(nil), do: "[]"
+  defp format_array([]), do: "[]"
+
+  defp format_array(list) when is_list(list) do
+    entries = Enum.map_join(list, ", ", fn v -> escape_string(to_string(v)) end)
+    "[#{entries}]"
+  end
+
+  defp format_array(_), do: "[]"
 
   defp escape_string(nil), do: "''"
   defp escape_string(val) when is_binary(val), do: "'#{String.replace(val, "'", "\\'")}'"

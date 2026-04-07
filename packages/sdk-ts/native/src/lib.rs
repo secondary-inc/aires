@@ -67,6 +67,7 @@ pub struct LogOptions {
     pub user_id: Option<String>,
     pub agent_id: Option<String>,
     pub category: Option<String>,
+    pub kind: Option<String>,
     pub display_text: Option<String>,
     pub tags: Option<Vec<String>>,
     pub attributes: Option<HashMap<String, String>>,
@@ -98,6 +99,9 @@ fn apply_opts(
         }
         if let Some(v) = o.category {
             builder = builder.category(v);
+        }
+        if let Some(v) = o.kind {
+            builder = builder.kind(v);
         }
         if let Some(v) = o.display_text {
             builder = builder.display_text(v);

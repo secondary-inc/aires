@@ -37,6 +37,9 @@ defmodule AiresCollector.Transform do
       error_type: deep_get(event, [:error, :type]) || "",
       error_message: deep_get(event, [:error, :message]) || "",
       error_stack: deep_get(event, [:error, :stack]) || "",
+      attributes: normalize_map(Map.get(event, :attributes)),
+      data: normalize_map(Map.get(event, :data)),
+      metric_unit: deep_get(event, [:metric, :unit]) || "",
       error_handled:
         case deep_get(event, [:error, :handled]) do
           nil -> true
@@ -67,6 +70,19 @@ defmodule AiresCollector.Transform do
   defp severity_to_string(5), do: "error"
   defp severity_to_string(6), do: "fatal"
   defp severity_to_string(_), do: "unspecified"
+
+  # Normalize proto map fields (may arrive as list of Entry structs or plain maps)
+  defp normalize_map(nil), do: %{}
+  defp normalize_map(m) when is_map(m), do: m
+
+  defp normalize_map(entries) when is_list(entries) do
+    Enum.into(entries, %{}, fn
+      %{key: k, value: v} -> {to_string(k), to_string(v)}
+      {k, v} -> {to_string(k), to_string(v)}
+    end)
+  end
+
+  defp normalize_map(_), do: %{}
 
   defp deep_get(map, keys) when is_map(map) do
     Enum.reduce_while(keys, map, fn key, acc ->

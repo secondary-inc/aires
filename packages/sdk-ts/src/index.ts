@@ -141,6 +141,32 @@ const createLogger = (base: Attrs = {}): Logger => {
   }
 
   logger.metric = (name: string, value: number, attrs?: Attrs) => {
+    // When native addon is available, use its dedicated metric path
+    // which properly fills the proto MetricValue field
+    if (_native) {
+      const merged = resolve(attrs)
+      const promoted: any = {}
+      const attr: Record<string, string> = {}
+
+      for (const [k, v] of Object.entries(merged)) {
+        if (PROMOTED.has(k)) {
+          promoted[k] = String(v)
+        } else if (k !== "_metric" && k !== "_metricValue" && v !== undefined && v !== null) {
+          attr[k] = typeof v === "string" ? v : JSON.stringify(v)
+        }
+      }
+
+      _native.metric(name, value, {
+        trace_id: promoted.traceId,
+        span_id: promoted.spanId,
+        session_id: promoted.sessionId,
+        user_id: promoted.userId,
+        attributes: attr,
+      })
+      return
+    }
+
+    // Fallback: emit as regular log event
     emit({
       level: "info",
       message: name,
@@ -197,9 +223,20 @@ export const aires = {
         const promoted: any = {}
         const attr: Record<string, string> = {}
 
+        let category: string | undefined
+        let kind: string | undefined
+        let agentId: string | undefined
+
         for (const [k, v] of Object.entries(event.attrs)) {
           if (PROMOTED.has(k)) {
             promoted[k] = String(v)
+          } else if (k === "_category") {
+            category = String(v)
+          } else if (k === "kind") {
+            kind = String(v)
+          } else if (k === "agentId") {
+            agentId = String(v)
+            attr[k] = String(v)
           } else if (v !== undefined && v !== null) {
             attr[k] = typeof v === "string" ? v : JSON.stringify(v)
           }
@@ -210,6 +247,9 @@ export const aires = {
           span_id: promoted.spanId,
           session_id: promoted.sessionId,
           user_id: promoted.userId,
+          agent_id: agentId,
+          category,
+          kind,
           attributes: attr,
           source_file: event.file,
           source_line: event.line,
