@@ -19,15 +19,28 @@ defmodule AiresCollector.Store do
     username = System.get_env("CLICKHOUSE_USER", "default")
     password = System.get_env("CLICKHOUSE_PASSWORD", "")
 
+    # Resolve hostname to IP at init time to avoid Mint DNS issues
+    resolved_host =
+      case :inet.getaddr(String.to_charlist(host), :inet) do
+        {:ok, ip} ->
+          ip_str = ip |> Tuple.to_list() |> Enum.join(".")
+          Logger.info("[Store] Resolved #{host} → #{ip_str}")
+          ip_str
+
+        {:error, _} ->
+          Logger.warning("[Store] DNS resolution failed for #{host}, using as-is")
+          host
+      end
+
     case Ch.start_link(
-           hostname: host,
+           hostname: resolved_host,
            port: port,
            database: database,
            username: username,
            password: password
          ) do
       {:ok, conn} ->
-        Logger.info("[Store] Connected to ClickHouse at #{host}:#{port}/#{database}")
+        Logger.info("[Store] Connected to ClickHouse at #{resolved_host}:#{port}/#{database}")
         {:ok, %{conn: conn}}
 
       {:error, reason} ->
