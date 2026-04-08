@@ -102,11 +102,27 @@ let _categories = new Set<string>()
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
+/** Is the process running inside a multiplexer like concurrently? */
+const _isMultiplexed = (): boolean => {
+  // concurrently sets these, or stdout isn't a TTY when piped
+  return !process.stdout.isTTY || !!process.env.CONCURRENTLY || !!process.env.npm_lifecycle_event
+}
+
+/** Inline mode: pretty-print logs without taking over the terminal */
+let _inlineMode = false
+
 export function startTui(service: string): {
   pushEvent: (event: { level: Level, message: string, attrs: Attrs, ts: number, file?: string, line?: number }) => void
   stop: () => void
 } {
   if (_state) return { pushEvent: pushEvent, stop: stopTui }
+
+  // Save original write functions BEFORE anything else
+  _origStdoutWrite = process.stdout.write.bind(process.stdout)
+  _origStderrWrite = process.stderr.write.bind(process.stderr)
+
+  // Detect if we should use inline mode (pretty logs) vs fullscreen TUI
+  _inlineMode = _isMultiplexed()
 
   _state = {
     events: [],
@@ -122,10 +138,23 @@ export function startTui(service: string): {
     running: true,
   }
 
-  // Save original write functions
-  _origStdoutWrite = process.stdout.write.bind(process.stdout)
-  _origStderrWrite = process.stderr.write.bind(process.stderr)
+  if (_inlineMode) {
+    // Inline mode: intercept stdout to suppress raw JSON, replace with pretty output
+    process.stdout.write = ((chunk: any, ...args: any[]) => {
+      const str = typeof chunk === "string" ? chunk : chunk.toString()
+      for (const line of str.split("\n").filter((l: string) => l.trim())) {
+        // Suppress our own structured JSON lines — they'll come through pushEvent instead
+        if (line.startsWith("{\"ts\":")) continue
+        // Let everything else through as-is
+        _origStdoutWrite!(line + "\n")
+      }
+      return true
+    }) as any
 
+    return { pushEvent: pushEventInline, stop: stopTui }
+  }
+
+  // Fullscreen mode: take over the terminal
   // Intercept raw stdout/stderr
   process.stdout.write = ((chunk: any, ...args: any[]) => {
     const str = typeof chunk === "string" ? chunk : chunk.toString()
@@ -168,6 +197,28 @@ export function startTui(service: string): {
 
 export function isTuiActive(): boolean {
   return _state !== null && _state.running
+}
+
+// ── Inline Pretty Printer ───────────────────────────────────────────────────
+
+function pushEventInline(event: { level: Level, message: string, attrs: Attrs, ts: number, file?: string, line?: number }) {
+  if (!_origStdoutWrite) return
+
+  const d = new Date(event.ts)
+  const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(d.getMilliseconds())}`
+
+  const sevColor = SEVERITY_COLORS[event.level] || ""
+  const sevLabel = event.level.slice(0, 3).toUpperCase()
+
+  const category = (event.attrs._category as string) || (event.attrs._source as string) || ""
+  const catStr = category ? `[${category}]` : ""
+
+  // Skip noisy metric events in inline mode — they flood the terminal
+  if (event.attrs._metric) return
+
+  // Format: 12:34:05.123 INF [http] request POST /agents/list 4ms
+  const line = `${DIM}${time}${RESET} ${sevColor}${BOLD}${padRight(sevLabel, 5)}${RESET} ${DIM}${padRight(catStr, 12)}${RESET} ${event.message}`
+  _origStdoutWrite!(line + "\n")
 }
 
 // ── Event Ingestion ─────────────────────────────────────────────────────────
@@ -255,9 +306,12 @@ function recomputeFiltered() {
 // ── Terminal Setup ──────────────────────────────────────────────────────────
 
 function setupTerminal() {
-  // Hide cursor, enable raw mode
-  _origStdoutWrite!("\x1b[?25l") // hide cursor
-  _origStdoutWrite!("\x1b[?1049h") // alt screen buffer
+  const isTTY = process.stdout.isTTY
+
+  if (isTTY) {
+    _origStdoutWrite!("\x1b[?25l") // hide cursor
+    _origStdoutWrite!("\x1b[?1049h") // alt screen buffer
+  }
 
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(true)
@@ -267,8 +321,10 @@ function setupTerminal() {
 }
 
 function teardownTerminal() {
-  _origStdoutWrite!("\x1b[?1049l") // restore screen
-  _origStdoutWrite!("\x1b[?25h") // show cursor
+  if (process.stdout.isTTY) {
+    _origStdoutWrite!("\x1b[?1049l") // restore screen
+    _origStdoutWrite!("\x1b[?25h") // show cursor
+  }
 
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(false)
