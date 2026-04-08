@@ -2,10 +2,9 @@
 /**
  * aires-dev — Development launcher with OpenTUI terminal interface
  *
- * Proper TUI built on OpenTUI (yoga flexbox) + SolidJS (reactivity).
- * Spawns child processes, captures all output, renders in a real TUI
- * with scrollable log view, column headers, level/column pickers,
- * keyboard navigation, search, and source filtering.
+ * Built on OpenTUI (yoga flexbox, native Zig renderer) + SolidJS.
+ * Mouse-first UI: clickable rows, dropdown menus, hover states.
+ * Keyboard shortcuts available as accelerators, not primary interaction.
  *
  * Usage:
  *   aires-dev --names api,app,axiom "cmd1" "cmd2" "cmd3"
@@ -38,6 +37,14 @@ const LEVEL_COLORS: Record<string, string> = {
 }
 const SRC_COLORS = ["#60a5fa", "#34d399", "#c084fc", "#22d3ee", "#facc15", "#fb923c"]
 
+const COL_DEFS: Array<{ id: ColId, label: string, width: number }> = [
+  { id: "time", label: "Timestamp", width: 13 },
+  { id: "level", label: "Level", width: 8 },
+  { id: "source", label: "Source", width: 8 },
+  { id: "category", label: "Category", width: 14 },
+  { id: "message", label: "Message", width: 0 },
+]
+
 // ── Parse Args ──────────────────────────────────────────────────────────────
 
 const argv = process.argv.slice(2)
@@ -61,15 +68,15 @@ const [srcFilter, setSrcFilter] = createSignal<string | null>(null)
 const [searchQuery, setSearchQuery] = createSignal("")
 const [searchMode, setSearchMode] = createSignal(false)
 const [paused, setPaused] = createSignal(false)
-const [showLevelPicker, setShowLevelPicker] = createSignal(false)
-const [showColPicker, setShowColPicker] = createSignal(false)
 const [eps, setEps] = createSignal(0)
+
+// Dropdown state — only one open at a time
+const [openDropdown, setOpenDropdown] = createSignal<"levels" | "columns" | "source" | null>(null)
+const [hoveredRow, setHoveredRow] = createSignal(-1)
 
 let eid = 0
 let recentCount = 0
 const recentStructured = new Map<string, number>()
-
-// ── Filtered events ─────────────────────────────────────────────────────────
 
 const filtered = createMemo(() => {
   const evs = events()
@@ -136,15 +143,11 @@ function spawnAll() {
     })
     let ob = "", eb = ""
     child.stdout!.on("data", (c: Buffer) => {
-      ob += c.toString()
-      const ls = ob.split("\n")
-      ob = ls.pop()!
+      ob += c.toString(); const ls = ob.split("\n"); ob = ls.pop()!
       for (const l of ls) handleLine(name, l, false)
     })
     child.stderr!.on("data", (c: Buffer) => {
-      eb += c.toString()
-      const ls = eb.split("\n")
-      eb = ls.pop()!
+      eb += c.toString(); const ls = eb.split("\n"); eb = ls.pop()!
       for (const l of ls) handleLine(name, l, true)
     })
     child.on("exit", (code) => push(name, code === 0 ? "info" : "error", `exited (code ${code})`))
@@ -166,96 +169,182 @@ function fmtTime(ts: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}.${String(d.getMilliseconds()).padStart(3, "0")}`
 }
 
-function fmtLevel(level: string): string {
-  if (level === "stdout") return "OUT"
-  if (level === "stderr") return "ERR"
-  return level.slice(0, 3).toUpperCase()
+function toggleInSet<T>(set: Set<T>, item: T): Set<T> {
+  const next = new Set(set)
+  next.has(item) ? next.delete(item) : next.add(item)
+  return next
 }
 
 // ── Components ──────────────────────────────────────────────────────────────
-// OpenTUI rule: <text> only accepts plain strings. Use <span> for inline styled segments.
-// Reactive values must be .toString() or template-literal'd into strings.
 
-function Header() {
-  const headerText = () => {
-    const parts = names.map((n, i) => n).join(" ")
-    const p = paused() ? " ⏸ PAUSED" : ""
-    return `▓ Aires  ${parts}  · ${String(events().length)} events · ${String(eps())}/s${p}`
-  }
+function ToolbarButton(props: { label: string, active?: boolean, onMouseDown: (e: any) => void }) {
+  const [hov, setHov] = createSignal(false)
+  const bg = () => props.active ? "#2a2a2a" : hov() ? "#1a1a1a" : "transparent"
   return (
-    <box height={1} paddingX={1}>
-      <text fg="#eab308">{headerText()}</text>
+    <box
+      height={1}
+      paddingX={1}
+      backgroundColor={bg()}
+      onMouseDown={props.onMouseDown}
+      onMouseOver={() => setHov(true)}
+      onMouseOut={() => setHov(false)}
+    >
+      <text fg={props.active ? "#eab308" : "#888"}>{props.label}</text>
     </box>
   )
 }
 
-function FilterBar() {
-  const filterText = () => {
-    const parts: string[] = []
-    if (srcFilter()) parts.push(`src:${srcFilter()}`)
-    if (searchMode()) parts.push(`/${searchQuery()}▌`)
-    else if (searchQuery()) parts.push(`search:${searchQuery()}`)
-    const hidden = LEVELS.slice(0, 6).filter(l => !enabledLevels().has(l))
-    if (hidden.length > 0) parts.push(`hidden:${hidden.map(l => l.slice(0,3)).join(",")}`)
-    return parts.join("  ")
-  }
+function SourcePill(props: { name: string, color: string, active: boolean, onMouseDown: (e: any) => void }) {
+  const [hov, setHov] = createSignal(false)
+  const bg = () => props.active ? "#1a1a1a" : hov() ? "#111" : "transparent"
   return (
-    <Show when={filterText().length > 0}>
-      <box height={1} paddingX={1}>
-        <text fg="#888">{filterText()}</text>
-      </box>
-    </Show>
+    <box
+      height={1}
+      paddingX={1}
+      backgroundColor={bg()}
+      onMouseDown={props.onMouseDown}
+      onMouseOver={() => setHov(true)}
+      onMouseOut={() => setHov(false)}
+    >
+      <text fg={props.active ? props.color : "#555"}>{props.name}</text>
+    </box>
+  )
+}
+
+function Header() {
+  return (
+    <box flexDirection="row" height={1} paddingX={1} gap={1}>
+      <text fg="#eab308">{"▓ Aires"}</text>
+      <For each={names}>
+        {(name, i) => (
+          <SourcePill
+            name={name}
+            color={SRC_COLORS[i() % SRC_COLORS.length]}
+            active={!srcFilter() || srcFilter() === name}
+            onMouseDown={() => setSrcFilter(cur => cur === name ? null : name)}
+          />
+        )}
+      </For>
+      <box flexGrow={1} />
+      <text fg="#555">{`${String(events().length)} events  ${String(eps())}/s`}</text>
+      <Show when={paused()}>
+        <box height={1} paddingX={1} backgroundColor="#332200" onMouseDown={() => setPaused(false)}>
+          <text fg="#eab308">{"⏸ paused"}</text>
+        </box>
+      </Show>
+    </box>
+  )
+}
+
+function Toolbar() {
+  return (
+    <box flexDirection="row" height={1} paddingX={1} gap={0}>
+      <ToolbarButton
+        label={"▾ Levels"}
+        active={openDropdown() === "levels"}
+        onMouseDown={() => setOpenDropdown(d => d === "levels" ? null : "levels")}
+      />
+      <ToolbarButton
+        label={"▾ Columns"}
+        active={openDropdown() === "columns"}
+        onMouseDown={() => setOpenDropdown(d => d === "columns" ? null : "columns")}
+      />
+      <ToolbarButton
+        label={"▾ Source"}
+        active={openDropdown() === "source"}
+        onMouseDown={() => setOpenDropdown(d => d === "source" ? null : "source")}
+      />
+      <box flexGrow={1} />
+      <Show when={srcFilter()}>
+        <box height={1} paddingX={1} backgroundColor="#1a1a1a" onMouseDown={() => setSrcFilter(null)}>
+          <text fg="#888">{`source: ${srcFilter()}  ✕`}</text>
+        </box>
+      </Show>
+      <Show when={searchQuery() && !searchMode()}>
+        <box height={1} paddingX={1} backgroundColor="#1a1a1a" onMouseDown={() => setSearchQuery("")}>
+          <text fg="#888">{`search: ${searchQuery()}  ✕`}</text>
+        </box>
+      </Show>
+      <Show when={searchMode()}>
+        <box height={1} paddingX={1} backgroundColor="#1a1a1a">
+          <text fg="#eab308">{`/ ${searchQuery()}▌`}</text>
+        </box>
+      </Show>
+    </box>
   )
 }
 
 function ColHeaders() {
   const cols = visibleCols()
-  const headerText = () => {
-    const parts: string[] = []
-    if (cols.has("time")) parts.push("TIME".padEnd(13))
-    if (cols.has("level")) parts.push("LEVEL".padEnd(6))
-    if (cols.has("source")) parts.push("SRC".padEnd(7))
-    if (cols.has("category")) parts.push("CAT".padEnd(13))
-    if (cols.has("message")) parts.push("MESSAGE")
-    return parts.join("")
-  }
   return (
-    <box height={1} paddingX={1}>
-      <text fg="#555">{headerText()}</text>
+    <box flexDirection="row" height={1} paddingX={1}>
+      <For each={COL_DEFS.filter(c => cols.has(c.id))}>
+        {(col) => (
+          <box width={col.width || undefined} flexGrow={col.width === 0 ? 1 : undefined}>
+            <text fg="#555">{col.label}</text>
+          </box>
+        )}
+      </For>
     </box>
   )
 }
 
-function EventRow(props: { ev: Ev, selected: boolean, expanded: boolean }) {
+function EventRow(props: { ev: Ev, idx: number, selected: boolean, expanded: boolean }) {
   const cols = visibleCols()
-  const lc = () => LEVEL_COLORS[props.ev.level] || "#666"
-  const mc = () => {
+  const si = names.indexOf(props.ev.src)
+  const srcColor = si >= 0 ? SRC_COLORS[si % SRC_COLORS.length] : "#666"
+  const levelColor = LEVEL_COLORS[props.ev.level] || "#666"
+
+  const msgColor = () => {
     if (props.ev.level === "error" || props.ev.level === "fatal") return LEVEL_COLORS[props.ev.level]
     if (props.ev.level === "warn") return "#eab308"
     if (props.ev.level === "stdout" || props.ev.level === "stderr") return "#888"
     return "#e5e5e5"
   }
 
-  const rowText = () => {
-    const parts: string[] = []
-    if (cols.has("time")) parts.push(fmtTime(props.ev.ts).padEnd(13))
-    if (cols.has("level")) parts.push(fmtLevel(props.ev.level).padEnd(6))
-    if (cols.has("source")) parts.push(props.ev.src.slice(0, 6).padEnd(7))
-    if (cols.has("category")) parts.push(props.ev.cat.slice(0, 12).padEnd(13))
-    if (cols.has("message")) parts.push(props.ev.msg)
-    return parts.join("")
-  }
+  const isHovered = () => hoveredRow() === props.idx
+  const bg = () => props.selected ? "#2a2a2a" : isHovered() ? "#1a1a1a" : "transparent"
 
   return (
     <box flexDirection="column">
-      <box height={1} paddingX={1} backgroundColor={props.selected ? "#333" : "transparent"}>
-        <text fg={mc()}>{rowText()}</text>
+      <box
+        flexDirection="row"
+        height={1}
+        paddingX={1}
+        backgroundColor={bg()}
+        onMouseDown={() => {
+          if (selectedIdx() === props.idx) {
+            setExpandedIds(p => toggleInSet(p, props.ev.id))
+          } else {
+            setSelectedIdx(props.idx)
+            setPaused(true)
+          }
+        }}
+        onMouseOver={() => setHoveredRow(props.idx)}
+        onMouseOut={() => { if (hoveredRow() === props.idx) setHoveredRow(-1) }}
+      >
+        <Show when={cols.has("time")}>
+          <box width={13}><text fg="#666">{fmtTime(props.ev.ts)}</text></box>
+        </Show>
+        <Show when={cols.has("level")}>
+          <box width={8}><text fg={levelColor}>{props.ev.level}</text></box>
+        </Show>
+        <Show when={cols.has("source")}>
+          <box width={8}><text fg={srcColor}>{props.ev.src}</text></box>
+        </Show>
+        <Show when={cols.has("category")}>
+          <box width={14}><text fg="#777">{props.ev.cat}</text></box>
+        </Show>
+        <Show when={cols.has("message")}>
+          <box flexGrow={1}><text fg={msgColor()}>{props.ev.msg}</text></box>
+        </Show>
       </box>
       <Show when={props.expanded}>
         <For each={Object.entries(props.ev.attrs).filter(([k]) => k !== "_metric" && k !== "_metricValue")}>
           {([key, val]) => (
-            <box height={1} paddingLeft={4}>
-              <text fg="#888">{`${key} ${typeof val === "string" ? val : JSON.stringify(val)}`}</text>
+            <box flexDirection="row" height={1} paddingLeft={4}>
+              <box width={16}><text fg="#666">{key}</text></box>
+              <box flexGrow={1}><text fg="#aaa">{typeof val === "string" ? val : JSON.stringify(val)}</text></box>
             </box>
           )}
         </For>
@@ -264,30 +353,91 @@ function EventRow(props: { ev: Ev, selected: boolean, expanded: boolean }) {
   )
 }
 
-function Overlay(props: { title: string, items: Array<{ label: string, on: boolean, key: string, color?: string }> }) {
+function DropdownItem(props: { label: string, checked: boolean, color?: string, onMouseDown: (e: any) => void }) {
+  const [hov, setHov] = createSignal(false)
   return (
-    <box position="absolute" left={2} top={3} width={28} flexDirection="column" border borderStyle="rounded" backgroundColor="#1a1a1a" padding={1}>
-      <text fg="#fff">{props.title}</text>
-      <For each={props.items}>
-        {(item) => (
-          <box height={1}>
-            <text fg={item.on ? "#22c55e" : "#555"}>{`${item.on ? "✓" : "·"} ${item.key} ${item.label}`}</text>
-          </box>
+    <box
+      flexDirection="row"
+      height={1}
+      paddingX={1}
+      backgroundColor={hov() ? "#2a2a2a" : "transparent"}
+      onMouseDown={props.onMouseDown}
+      onMouseOver={() => setHov(true)}
+      onMouseOut={() => setHov(false)}
+    >
+      <box width={3}><text fg={props.checked ? "#22c55e" : "#444"}>{props.checked ? "✓" : " "}</text></box>
+      <text fg={props.color || "#ccc"}>{props.label}</text>
+    </box>
+  )
+}
+
+function LevelsDropdown() {
+  return (
+    <box position="absolute" left={1} top={2} width={24} flexDirection="column" border borderStyle="rounded" backgroundColor="#111" padding={0}>
+      <box height={1} paddingX={1}><text fg="#888">{"Filter levels"}</text></box>
+      <For each={LEVELS}>
+        {(level) => (
+          <DropdownItem
+            label={level}
+            checked={enabledLevels().has(level)}
+            color={LEVEL_COLORS[level]}
+            onMouseDown={(e: any) => { e.stopPropagation(); setEnabledLevels(prev => toggleInSet(prev, level)) }}
+          />
         )}
       </For>
-      <text fg="#666">{"press key to toggle · any other to close"}</text>
+      <box height={1} paddingX={1} onMouseDown={(e: any) => { e.stopPropagation(); setEnabledLevels(new Set(LEVELS)) }}>
+        <text fg="#555">{"reset all"}</text>
+      </box>
+    </box>
+  )
+}
+
+function ColumnsDropdown() {
+  return (
+    <box position="absolute" left={10} top={2} width={24} flexDirection="column" border borderStyle="rounded" backgroundColor="#111" padding={0}>
+      <box height={1} paddingX={1}><text fg="#888">{"Visible columns"}</text></box>
+      <For each={COL_DEFS}>
+        {(col) => (
+          <DropdownItem
+            label={col.label}
+            checked={visibleCols().has(col.id)}
+            onMouseDown={(e: any) => { e.stopPropagation(); setVisibleCols(prev => toggleInSet(prev, col.id)) }}
+          />
+        )}
+      </For>
+    </box>
+  )
+}
+
+function SourceDropdown() {
+  return (
+    <box position="absolute" left={20} top={2} width={24} flexDirection="column" border borderStyle="rounded" backgroundColor="#111" padding={0}>
+      <box height={1} paddingX={1}><text fg="#888">{"Filter by source"}</text></box>
+      <DropdownItem
+        label={"all sources"}
+        checked={!srcFilter()}
+        onMouseDown={(e: any) => { e.stopPropagation(); setSrcFilter(null); setOpenDropdown(null) }}
+      />
+      <For each={names}>
+        {(name, i) => (
+          <DropdownItem
+            label={name}
+            checked={srcFilter() === name}
+            color={SRC_COLORS[i() % SRC_COLORS.length]}
+            onMouseDown={(e: any) => { e.stopPropagation(); setSrcFilter(name); setOpenDropdown(null) }}
+          />
+        )}
+      </For>
     </box>
   )
 }
 
 function Footer() {
-  const footerText = () => {
-    const f = filtered()
-    return `↑↓ scroll  ⏎ expand  / search  ⇥ source  l levels  v columns  p pause  c clear  q quit    ${String(f.length)}/${String(events().length)}`
-  }
   return (
-    <box height={1} paddingX={1}>
-      <text fg="#666">{footerText()}</text>
+    <box flexDirection="row" height={1} paddingX={1}>
+      <text fg="#444">{"↑↓ scroll  ⏎ expand  / search  esc clear  q quit"}</text>
+      <box flexGrow={1} />
+      <text fg="#555">{`${String(filtered().length)} / ${String(events().length)}`}</text>
     </box>
   )
 }
@@ -298,23 +448,10 @@ function App() {
   const dims = useTerminalDimensions()
 
   useKeyboard((key) => {
-    if (showLevelPicker()) {
-      const n = parseInt(key.sequence || "")
-      if (n >= 1 && n <= LEVELS.length) {
-        setEnabledLevels(prev => { const s = new Set(prev); const lv = LEVELS[n-1]; s.has(lv) ? s.delete(lv) : s.add(lv); return s })
-        return
-      }
-      if (key.name === "a") { setEnabledLevels(new Set(LEVELS)); return }
-      setShowLevelPicker(false); return
-    }
-    if (showColPicker()) {
-      const n = parseInt(key.sequence || "")
-      const ids: ColId[] = ["time", "level", "source", "category", "message"]
-      if (n >= 1 && n <= ids.length) {
-        setVisibleCols(prev => { const s = new Set(prev); const id = ids[n-1]; s.has(id) ? s.delete(id) : s.add(id); return s })
-        return
-      }
-      setShowColPicker(false); return
+    // Close dropdown on any key
+    if (openDropdown()) {
+      setOpenDropdown(null)
+      return
     }
     if (searchMode()) {
       if (key.name === "escape" || key.name === "return") { setSearchMode(false); return }
@@ -330,43 +467,48 @@ function App() {
     }
     if (key.name === "return" || key.name === "space") {
       const ev = filtered()[selectedIdx()]
-      if (ev) setExpandedIds(p => { const s = new Set<number>(p); s.has(ev.id) ? s.delete(ev.id) : s.add(ev.id); return s })
+      if (ev) setExpandedIds(p => toggleInSet(p, ev.id))
       return
     }
     if (key.sequence === "/" || key.name === "slash") { setSearchMode(true); setSearchQuery(""); return }
     if (key.name === "escape") { setSearchQuery(""); setSrcFilter(null); setEnabledLevels(new Set(LEVELS)); return }
-    if (key.name === "l") { setShowLevelPicker(true); return }
-    if (key.name === "v") { setShowColPicker(true); return }
-    if (key.name === "tab") { const s = [null, ...names]; setSrcFilter(c => s[(s.indexOf(c) + 1) % s.length]); return }
     if (key.name === "c") { setEvents([]); setSelectedIdx(-1); setExpandedIds(new Set<number>()); eid = 0; return }
     if (key.name === "p") { setPaused(p => { if (p) setSelectedIdx(filtered().length - 1); return !p }); return }
     if (key.sequence === "G") { setSelectedIdx(filtered().length - 1); setPaused(false); return }
     if (key.sequence === "g") { setSelectedIdx(0); setPaused(true); return }
   })
 
-  const levelItems = () => LEVELS.map((l, i) => ({ label: l, on: enabledLevels().has(l), key: String(i + 1), color: LEVEL_COLORS[l] }))
-  const colItems = () => {
-    const ids: ColId[] = ["time", "level", "source", "category", "message"]
-    return ids.map((id, i) => ({ label: id, on: visibleCols().has(id), key: String(i + 1) }))
-  }
-
   return (
     <box flexDirection="column" width={dims().width} height={dims().height} backgroundColor="#0d0d0d">
       <Header />
-      <FilterBar />
+      <Toolbar />
       <ColHeaders />
-      <box height={1}><text fg="#333">{"─".repeat(dims().width)}</text></box>
+      <box height={1}><text fg="#222">{"─".repeat(dims().width)}</text></box>
       <scrollbox flexGrow={1}>
         <For each={filtered()}>
           {(ev, i) => (
-            <EventRow ev={ev} selected={i() === selectedIdx()} expanded={expandedIds().has(ev.id)} />
+            <EventRow ev={ev} idx={i()} selected={i() === selectedIdx()} expanded={expandedIds().has(ev.id)} />
           )}
         </For>
       </scrollbox>
-      <box height={1}><text fg="#333">{"─".repeat(dims().width)}</text></box>
+      <box height={1}><text fg="#222">{"─".repeat(dims().width)}</text></box>
       <Footer />
-      <Show when={showLevelPicker()}><Overlay title="Log Levels" items={levelItems()} /></Show>
-      <Show when={showColPicker()}><Overlay title="Columns" items={colItems()} /></Show>
+
+      {/* Dropdown backdrop — click anywhere to close */}
+      <Show when={openDropdown()}>
+        <box
+          position="absolute"
+          left={0} top={0}
+          width={dims().width}
+          height={dims().height}
+          onMouseDown={() => setOpenDropdown(null)}
+        />
+      </Show>
+
+      {/* Dropdown menus */}
+      <Show when={openDropdown() === "levels"}><LevelsDropdown /></Show>
+      <Show when={openDropdown() === "columns"}><ColumnsDropdown /></Show>
+      <Show when={openDropdown() === "source"}><SourceDropdown /></Show>
     </box>
   )
 }
