@@ -290,11 +290,8 @@ export const aires = {
     _buffer = []
 
     // Start TUI if requested
-    // Explicit tui:true or AIRES_TUI=1 always enables (even without TTY)
-    // AIRES_TUI=auto (or tui unset in dev) only enables when TTY is available
     const enableTui = opts.tui === true || process.env.AIRES_TUI === "1"
-    const autoTui = process.env.AIRES_TUI === "auto"
-    if (enableTui || (autoTui && process.stdout.isTTY)) {
+    if (enableTui) {
       const tui = startTui(opts.service)
       _tuiPush = tui.pushEvent
     }
