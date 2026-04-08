@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from "node:async_hooks"
-import { startTui, isTuiActive } from "./tui"
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -193,12 +192,9 @@ type InitOptions = {
   queueCapacity?: number
   tls?: boolean
   apiKey?: string
-  /** Enable the TUI log viewer. Also enabled via AIRES_TUI=1 env var. */
-  tui?: boolean
 }
 
 let _native: any = null
-let _tuiPush: ((event: { level: Level, message: string, attrs: Attrs, ts: number, file?: string, line?: number }) => void) | null = null
 
 export const aires = {
   init(opts: InitOptions) {
@@ -223,11 +219,6 @@ export const aires = {
 
     // Set up emitter
     _emitter = (event) => {
-      // Feed to TUI if active
-      if (_tuiPush) {
-        _tuiPush(event)
-      }
-
       if (_native) {
         const promoted: any = {}
         const attr: Record<string, string> = {}
@@ -272,14 +263,29 @@ export const aires = {
           case "error": _native.error(event.message, nativeOpts); break
           case "fatal": _native.fatal(event.message, nativeOpts); break
         }
-      } else if (!isTuiActive()) {
-        // Fallback: structured JSON to stdout (skip if TUI is handling display)
-        const { level, message, attrs, ts, file, line } = event
-        const out: any = { ts: new Date(ts).toISOString(), level, message, service: _service }
-        if (file) out.file = `${file}:${line}`
-        const attrKeys = Object.keys(attrs)
-        if (attrKeys.length > 0) out.attrs = attrs
-        process.stdout.write(JSON.stringify(out) + "\n")
+      } else {
+        // Fallback: clean terminal output — just message + key data
+        if (event.attrs._metric) return
+
+        const { level, message, attrs } = event
+        const R = "\x1b[0m"
+        const D = "\x1b[2m"
+        const isError = level === "error" || level === "fatal"
+
+        // Build key attrs inline
+        const skipKeys = new Set(["_category", "_source", "_span", "_spanName", "_metric", "_metricValue", "kind"])
+        const parts = Object.entries(attrs)
+          .filter(([k, v]) => !skipKeys.has(k) && !PROMOTED.has(k) && v !== undefined && v !== "")
+          .map(([k, v]) => `${D}${k}=${R}${typeof v === "string" ? v : JSON.stringify(v)}`)
+
+        let line = isError ? `\x1b[31m${message}${R}` : message
+        if (parts.length) line += `  ${parts.join(" ")}`
+
+        process.stdout.write(line + "\n")
+
+        if (isError && attrs.errorStack) {
+          process.stdout.write(`${D}${String(attrs.errorStack)}${R}\n`)
+        }
       }
     }
 
@@ -289,12 +295,6 @@ export const aires = {
     }
     _buffer = []
 
-    // Start TUI if requested
-    const enableTui = opts.tui === true || process.env.AIRES_TUI === "1"
-    if (enableTui) {
-      const tui = startTui(opts.service)
-      _tuiPush = tui.pushEvent
-    }
   },
 
   patchConsole() {
@@ -309,31 +309,26 @@ export const aires = {
     console.log = (...args: unknown[]) => {
       const message = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")
       log.info(message, { _source: "console.log" })
-      if (!isTuiActive()) original.log.apply(console, args)
     }
 
     console.debug = (...args: unknown[]) => {
       const message = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")
       log.debug(message, { _source: "console.debug" })
-      if (!isTuiActive()) original.debug.apply(console, args)
     }
 
     console.info = (...args: unknown[]) => {
       const message = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")
       log.info(message, { _source: "console.info" })
-      if (!isTuiActive()) original.info.apply(console, args)
     }
 
     console.warn = (...args: unknown[]) => {
       const message = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")
       log.warn(message, { _source: "console.warn" })
-      if (!isTuiActive()) original.warn.apply(console, args)
     }
 
     console.error = (...args: unknown[]) => {
       const message = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")
       log.error(message, { _source: "console.error" })
-      if (!isTuiActive()) original.error.apply(console, args)
     }
   },
 
