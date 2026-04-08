@@ -348,37 +348,42 @@ function render() {
     }
   }
 
-  // Find scroll offset so selected row is visible
+  // Find scroll offset so selected row is visible.
+  // Key behavior: selected row should be visible, and when at the bottom
+  // (auto-scroll), we show as many events as fit with the newest at the bottom.
   let scrollStart = 0
   if (st.sel >= 0) {
-    // Count lines up to selected
-    let linesAbove = 0
-    for (let i = 0; i < st.sel; i++) linesAbove += rowHeights[i]
-    const selectedH = rowHeights[st.sel] || 1
-    // Try to keep selected in the middle third
-    const target = Math.max(0, linesAbove - Math.floor(bodyH / 3))
-    let acc = 0
-    for (let i = 0; i < st.filt.length; i++) {
-      if (acc >= target) { scrollStart = i; break }
-      acc += rowHeights[i]
+    // Total lines from scrollStart to selected (inclusive) must fit in bodyH.
+    // Work backwards from selected to find the first event that fits.
+    let linesFromSelBack = 0
+    scrollStart = st.sel
+    for (let i = st.sel; i >= 0; i--) {
+      const h = rowHeights[i] || 1
+      if (linesFromSelBack + h > bodyH) break
+      linesFromSelBack += h
+      scrollStart = i
     }
   }
 
-  // Render rows
-  let rendered = 0
-  for (let i = scrollStart; i < st.filt.length && rendered < bodyH; i++) {
+  // Render rows — events stick to the bottom like a terminal.
+  // First, collect all visible row lines.
+  const visibleLines: Array<{ line: string, eventIdx: number }> = []
+  for (let i = scrollStart; i < st.filt.length; i++) {
     const e = st.evs[st.filt[i]]
     const isSel = i === st.sel
     const rowLines = formatRow(e, visCols, flexW, W)
     for (const rl of rowLines) {
-      if (rendered >= bodyH) break
-      out.push(isSel ? `${INV}${rl}${R}` : rl)
-      rendered++
+      visibleLines.push({ line: isSel ? `${INV}${rl}${R}` : rl, eventIdx: i })
     }
   }
 
-  // Fill rest of body
-  while (rendered < bodyH) { out.push(""); rendered++ }
+  // Only take the last bodyH lines (so events fill from bottom up)
+  const displayLines = visibleLines.slice(-bodyH)
+
+  // Pad top with empty lines so content is bottom-aligned
+  const emptyTop = bodyH - displayLines.length
+  for (let i = 0; i < emptyTop; i++) out.push("")
+  for (const dl of displayLines) out.push(dl.line)
 
   // ── Footer ────────────────────────────────────────────────────
   const fl = [
