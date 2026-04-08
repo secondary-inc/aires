@@ -5,7 +5,11 @@
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./dev": "./src/dev.ts"
+  },
+  "bin": {
+    "aires-dev": "./src/dev.ts"
   },
   "scripts": {
     "build:native": "cd native && cargo build --release",
