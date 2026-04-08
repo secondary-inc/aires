@@ -6,10 +6,10 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./dev": "./src/dev.ts"
+    "./dev": "./src/dev.tsx"
   },
   "bin": {
-    "aires-dev": "./src/dev.ts"
+    "aires-dev": "./src/dev.tsx"
   },
   "scripts": {
     "build:native": "cd native && cargo build --release",
@@ -18,6 +18,13 @@
   "publishConfig": {
     "registry": "https://npm.rome.2nd.sh/"
   },
-  "author": { "name": "Secondary Inc." },
-  "license": "MIT"
+  "author": {
+    "name": "Secondary Inc."
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@opentui/core": "^0.1.97",
+    "@opentui/solid": "^0.1.97",
+    "solid-js": "^1.9.12"
+  }
 }
