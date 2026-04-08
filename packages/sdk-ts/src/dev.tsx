@@ -173,78 +173,89 @@ function fmtLevel(level: string): string {
 }
 
 // ── Components ──────────────────────────────────────────────────────────────
+// OpenTUI rule: <text> only accepts plain strings. Use <span> for inline styled segments.
+// Reactive values must be .toString() or template-literal'd into strings.
 
 function Header() {
+  const headerText = () => {
+    const parts = names.map((n, i) => n).join(" ")
+    const p = paused() ? " ⏸ PAUSED" : ""
+    return `▓ Aires  ${parts}  · ${String(events().length)} events · ${String(eps())}/s${p}`
+  }
   return (
-    <box flexDirection="row" height={1} paddingX={1}>
-      <text fg="#eab308"><b>▓ Aires</b></text>
-      <For each={names}>
-        {(name, i) => (
-          <text fg={!srcFilter() || srcFilter() === name ? SRC_COLORS[i() % SRC_COLORS.length] : "#555"}>
-            {" "}<b>{name}</b>
-          </text>
-        )}
-      </For>
-      <text fg="#666"> · {events().length} events · {eps()}/s</text>
-      <Show when={paused()}><text fg="#eab308"> <b>⏸ PAUSED</b></text></Show>
+    <box height={1} paddingX={1}>
+      <text fg="#eab308">{headerText()}</text>
     </box>
   )
 }
 
 function FilterBar() {
-  const hasFilters = () => srcFilter() || searchQuery() || searchMode() || LEVELS.slice(0, 6).some(l => !enabledLevels().has(l))
+  const filterText = () => {
+    const parts: string[] = []
+    if (srcFilter()) parts.push(`src:${srcFilter()}`)
+    if (searchMode()) parts.push(`/${searchQuery()}▌`)
+    else if (searchQuery()) parts.push(`search:${searchQuery()}`)
+    const hidden = LEVELS.slice(0, 6).filter(l => !enabledLevels().has(l))
+    if (hidden.length > 0) parts.push(`hidden:${hidden.map(l => l.slice(0,3)).join(",")}`)
+    return parts.join("  ")
+  }
   return (
-    <Show when={hasFilters()}>
-      <box flexDirection="row" height={1} paddingX={1} gap={1}>
-        <Show when={srcFilter()}><text fg="#888">src:<text fg="#eab308">{srcFilter()}</text></text></Show>
-        <Show when={searchMode()}><text fg="#eab308">/<text fg="#fff">{searchQuery()}</text>▌</text></Show>
-        <Show when={!searchMode() && searchQuery()}><text fg="#888">search:<text fg="#fff">{searchQuery()}</text></text></Show>
-        <Show when={LEVELS.slice(0, 6).some(l => !enabledLevels().has(l))}>
-          <text fg="#888">hidden:<text fg="#666">{LEVELS.slice(0, 6).filter(l => !enabledLevels().has(l)).map(l => l.slice(0,3)).join(",")}</text></text>
-        </Show>
+    <Show when={filterText().length > 0}>
+      <box height={1} paddingX={1}>
+        <text fg="#888">{filterText()}</text>
       </box>
     </Show>
   )
 }
 
-function ColHeaders(props: { width: number }) {
+function ColHeaders() {
   const cols = visibleCols()
+  const headerText = () => {
+    const parts: string[] = []
+    if (cols.has("time")) parts.push("TIME".padEnd(13))
+    if (cols.has("level")) parts.push("LEVEL".padEnd(6))
+    if (cols.has("source")) parts.push("SRC".padEnd(7))
+    if (cols.has("category")) parts.push("CAT".padEnd(13))
+    if (cols.has("message")) parts.push("MESSAGE")
+    return parts.join("")
+  }
   return (
-    <box flexDirection="row" height={1} paddingX={1}>
-      <Show when={cols.has("time")}><text fg="#555" width={13}>TIME</text></Show>
-      <Show when={cols.has("level")}><text fg="#555" width={6}>LEVEL</text></Show>
-      <Show when={cols.has("source")}><text fg="#555" width={7}>SRC</text></Show>
-      <Show when={cols.has("category")}><text fg="#555" width={13}>CAT</text></Show>
-      <Show when={cols.has("message")}><text fg="#555" flexGrow={1}>MESSAGE</text></Show>
+    <box height={1} paddingX={1}>
+      <text fg="#555">{headerText()}</text>
     </box>
   )
 }
 
 function EventRow(props: { ev: Ev, selected: boolean, expanded: boolean }) {
   const cols = visibleCols()
-  const si = names.indexOf(props.ev.src)
-  const sc = si >= 0 ? SRC_COLORS[si % SRC_COLORS.length] : "#666"
-  const lc = LEVEL_COLORS[props.ev.level] || "#666"
-  const mc = props.ev.level === "error" || props.ev.level === "fatal" ? lc
-    : props.ev.level === "warn" ? "#eab308"
-    : props.ev.level === "stdout" || props.ev.level === "stderr" ? "#888"
-    : "#e5e5e5"
+  const lc = () => LEVEL_COLORS[props.ev.level] || "#666"
+  const mc = () => {
+    if (props.ev.level === "error" || props.ev.level === "fatal") return LEVEL_COLORS[props.ev.level]
+    if (props.ev.level === "warn") return "#eab308"
+    if (props.ev.level === "stdout" || props.ev.level === "stderr") return "#888"
+    return "#e5e5e5"
+  }
+
+  const rowText = () => {
+    const parts: string[] = []
+    if (cols.has("time")) parts.push(fmtTime(props.ev.ts).padEnd(13))
+    if (cols.has("level")) parts.push(fmtLevel(props.ev.level).padEnd(6))
+    if (cols.has("source")) parts.push(props.ev.src.slice(0, 6).padEnd(7))
+    if (cols.has("category")) parts.push(props.ev.cat.slice(0, 12).padEnd(13))
+    if (cols.has("message")) parts.push(props.ev.msg)
+    return parts.join("")
+  }
 
   return (
     <box flexDirection="column">
-      <box flexDirection="row" height={1} paddingX={1} backgroundColor={props.selected ? "#333" : "transparent"}>
-        <Show when={cols.has("time")}><text fg="#666" width={13}>{fmtTime(props.ev.ts)}</text></Show>
-        <Show when={cols.has("level")}><text fg={lc} width={6}><b>{fmtLevel(props.ev.level)}</b></text></Show>
-        <Show when={cols.has("source")}><text fg={sc} width={7}>{props.ev.src.slice(0, 6)}</text></Show>
-        <Show when={cols.has("category")}><text fg="#666" width={13}>{props.ev.cat.slice(0, 12)}</text></Show>
-        <Show when={cols.has("message")}><text fg={mc} flexGrow={1}>{props.ev.msg}</text></Show>
+      <box height={1} paddingX={1} backgroundColor={props.selected ? "#333" : "transparent"}>
+        <text fg={mc()}>{rowText()}</text>
       </box>
       <Show when={props.expanded}>
         <For each={Object.entries(props.ev.attrs).filter(([k]) => k !== "_metric" && k !== "_metricValue")}>
           {([key, val]) => (
             <box height={1} paddingLeft={4}>
-              <text fg="#888">{key} </text>
-              <text fg="#ccc">{typeof val === "string" ? val : JSON.stringify(val)}</text>
+              <text fg="#888">{`${key} ${typeof val === "string" ? val : JSON.stringify(val)}`}</text>
             </box>
           )}
         </For>
@@ -256,36 +267,27 @@ function EventRow(props: { ev: Ev, selected: boolean, expanded: boolean }) {
 function Overlay(props: { title: string, items: Array<{ label: string, on: boolean, key: string, color?: string }> }) {
   return (
     <box position="absolute" left={2} top={3} width={28} flexDirection="column" border borderStyle="rounded" backgroundColor="#1a1a1a" padding={1}>
-      <text fg="#fff"><b>{props.title}</b></text>
+      <text fg="#fff">{props.title}</text>
       <For each={props.items}>
         {(item) => (
-          <box flexDirection="row" height={1}>
-            <text fg={item.on ? "#22c55e" : "#555"}>{item.on ? "✓" : "·"} </text>
-            <text fg="#666">{item.key} </text>
-            <text fg={item.color || "#ccc"}>{item.label}</text>
+          <box height={1}>
+            <text fg={item.on ? "#22c55e" : "#555"}>{`${item.on ? "✓" : "·"} ${item.key} ${item.label}`}</text>
           </box>
         )}
       </For>
-      <text fg="#666">press key to toggle · any other to close</text>
+      <text fg="#666">{"press key to toggle · any other to close"}</text>
     </box>
   )
 }
 
 function Footer() {
-  const f = filtered()
+  const footerText = () => {
+    const f = filtered()
+    return `↑↓ scroll  ⏎ expand  / search  ⇥ source  l levels  v columns  p pause  c clear  q quit    ${String(f.length)}/${String(events().length)}`
+  }
   return (
-    <box flexDirection="row" height={1} paddingX={1} gap={2}>
-      <text><text fg="#666">↑↓</text> scroll</text>
-      <text><text fg="#666">⏎</text> expand</text>
-      <text><text fg="#666">/</text> search</text>
-      <text><text fg="#666">⇥</text> source</text>
-      <text><text fg="#666">l</text> levels</text>
-      <text><text fg="#666">v</text> columns</text>
-      <text><text fg="#666">p</text> pause</text>
-      <text><text fg="#666">c</text> clear</text>
-      <text><text fg="#666">q</text> quit</text>
-      <box flexGrow={1} />
-      <text fg="#666">{f.length}/{events().length}</text>
+    <box height={1} paddingX={1}>
+      <text fg="#666">{footerText()}</text>
     </box>
   )
 }
@@ -352,7 +354,7 @@ function App() {
     <box flexDirection="column" width={dims().width} height={dims().height} backgroundColor="#0d0d0d">
       <Header />
       <FilterBar />
-      <ColHeaders width={dims().width} />
+      <ColHeaders />
       <box height={1}><text fg="#333">{"─".repeat(dims().width)}</text></box>
       <scrollbox flexGrow={1}>
         <For each={filtered()}>
