@@ -12,7 +12,7 @@
     "test": "bun test"
   },
   "publishConfig": {
-    "registry": "https://npm.rome.2nd.sh/"
+    "registry": "https://npm.zuul-crocodile.ts.net/"
   },
   "author": {
     "name": "Secondary Inc."

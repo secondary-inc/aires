@@ -266,6 +266,7 @@ export const aires = {
       } else {
         // Fallback: clean terminal output — just message + key data
         if (event.attrs._metric) return
+        if (event.attrs._span) return
 
         const { level, message, attrs } = event
         const R = "\x1b[0m"
