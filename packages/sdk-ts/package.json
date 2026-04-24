@@ -1,6 +1,6 @@
 {
   "name": "@aires/sdk",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Aires observability SDK for TypeScript/Bun/Node",
   "type": "module",
   "main": "./src/index.ts",

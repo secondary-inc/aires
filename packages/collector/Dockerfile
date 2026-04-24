@@ -30,9 +30,9 @@ COPY --from=build /app/_build/prod/rel/aires_collector ./
 ENV MIX_ENV=prod
 ENV LANG=en_US.UTF-8
 
-EXPOSE 4317
+EXPOSE 4317 4318
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-  CMD nc -z localhost 4317 || exit 1
+  CMD nc -z localhost 4317 && nc -z localhost 4318 || exit 1
 
 CMD ["bin/aires_collector", "start"]

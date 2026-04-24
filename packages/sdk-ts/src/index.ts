@@ -463,5 +463,6 @@ export const airesPlugin = (opts?: PluginOptions) => {
 
 // ── Convenience re-exports ──────────────────────────────────────────────────
 
+export * as query from "./query"
 export { log as default }
 export type { Attrs, Level, Logger, SpanHandle, InitOptions, PluginOptions }
