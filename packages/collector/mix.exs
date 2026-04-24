@@ -28,6 +28,10 @@ defmodule AiresCollector.MixProject do
       {:grpc, "~> 0.9"},
       {:protobuf, "~> 0.13"},
 
+      # HTTP server for query API
+      {:bandit, "~> 1.5"},
+      {:plug, "~> 1.16"},
+
       # ClickHouse client
       {:ch, "~> 0.3"},
       {:db_connection, "~> 2.7"},

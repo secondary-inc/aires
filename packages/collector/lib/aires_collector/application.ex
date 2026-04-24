@@ -8,7 +8,8 @@ defmodule AiresCollector.Application do
         [
           {AiresCollector.Store, []},
           {GRPC.Server.Supervisor,
-           endpoint: AiresCollector.Endpoint, port: port(), start_server: true}
+           endpoint: AiresCollector.Endpoint, port: grpc_port(), start_server: true},
+          {Bandit, plug: AiresCollector.HttpRouter, scheme: :http, port: http_port()}
         ]
       else
         []
@@ -18,7 +19,14 @@ defmodule AiresCollector.Application do
     Supervisor.start_link(children, opts)
   end
 
-  def port do
+  def grpc_port do
     System.get_env("GRPC_PORT", "4317") |> String.to_integer()
   end
+
+  def http_port do
+    System.get_env("HTTP_PORT", "4318") |> String.to_integer()
+  end
+
+  # Kept for backwards compat with any existing callers.
+  def port, do: grpc_port()
 end

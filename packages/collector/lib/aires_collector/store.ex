@@ -11,6 +11,9 @@ defmodule AiresCollector.Store do
     GenServer.call(__MODULE__, {:insert_batch, rows}, 30_000)
   end
 
+  @doc "Returns the shared Ch connection for read queries."
+  def connection, do: GenServer.call(__MODULE__, :connection)
+
   @impl true
   def init(_) do
     host = System.get_env("CLICKHOUSE_HOST", "localhost")
@@ -53,6 +56,10 @@ defmodule AiresCollector.Store do
   def handle_call({:insert_batch, rows}, _from, %{conn: conn} = state) do
     result = do_insert(conn, rows)
     {:reply, result, state}
+  end
+
+  def handle_call(:connection, _from, %{conn: conn} = state) do
+    {:reply, conn, state}
   end
 
   defp do_insert(_conn, []), do: :ok
