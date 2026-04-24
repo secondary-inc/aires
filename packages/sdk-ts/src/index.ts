@@ -42,12 +42,33 @@ let _buffer: RawEvent[] = []
 let _emitter: ((event: RawEvent) => void) | null = null
 let _service = ""
 let _environment = ""
+let _initCalled = false
+
+// Auto-init timer: if init() hasn't been called within 2 seconds of the
+// first log event, auto-initialize with stdout fallback so logs are never lost.
+let _autoInitTimer: ReturnType<typeof setTimeout> | null = null
+
+const _scheduleAutoInit = () => {
+  if (_autoInitTimer || _initCalled) return
+  _autoInitTimer = setTimeout(() => {
+    if (!_initCalled && !_emitter) {
+      // init() was never called — auto-initialize with stdout fallback
+      process.stdout.write("\x1b[33m[aires] init() was not called — auto-initializing with stdout fallback\x1b[0m\n")
+      aires.init({
+        service: process.env.AIRES_SERVICE || "unknown",
+        endpoint: "", // no collector — stdout only
+        environment: process.env.AIRES_ENV || process.env.NODE_ENV || "development",
+      })
+    }
+  }, 2000)
+}
 
 const emit = (event: RawEvent) => {
   if (_emitter) {
     _emitter(event)
   } else {
     _buffer.push(event)
+    _scheduleAutoInit()
   }
 }
 
@@ -198,12 +219,23 @@ let _native: any = null
 
 export const aires = {
   init(opts: InitOptions) {
+    _initCalled = true
+    if (_autoInitTimer) {
+      clearTimeout(_autoInitTimer)
+      _autoInitTimer = null
+    }
     _service = opts.service
     _environment = opts.environment || "production"
 
     // Try native addon
     try {
-      _native = require("../native/aires-sdk-napi.node")
+      // Resolve via import.meta.url so it works regardless of cwd / bundling.
+      const { createRequire } = require("node:module")
+      const { fileURLToPath } = require("node:url")
+      const { join, dirname } = require("node:path")
+      const req = createRequire(import.meta.url)
+      const here = dirname(fileURLToPath(import.meta.url))
+      _native = req(join(here, "..", "native", "aires-sdk-napi.node"))
       _native.init({
         service: opts.service,
         endpoint: opts.endpoint,
@@ -213,8 +245,13 @@ export const aires = {
         tls: opts.tls,
         api_key: opts.apiKey,
       })
-    } catch {
-      // Native not available — use fallback
+    } catch (err) {
+      // Native not available — use stdout fallback. Surface a one-time
+      // warning so users know their events aren't reaching the collector.
+      const msg = err instanceof Error ? err.message : String(err)
+      process.stderr.write(
+        `\x1b[33m[aires] native addon unavailable — events will NOT be shipped to ${opts.endpoint}. Falling back to stdout. (${msg})\x1b[0m\n`,
+      )
     }
 
     // Set up emitter

@@ -1,14 +1,20 @@
 {
   "name": "@aires/sdk",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Aires observability SDK for TypeScript/Bun/Node",
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts"
   },
+  "files": [
+    "src",
+    "native/aires-sdk-napi.node"
+  ],
   "scripts": {
-    "build:native": "cd native && cargo build --release",
+    "build:native": "cd native && cargo build --release && node -e \"require('fs').copyFileSync('../../../target/release/' + (process.platform === 'darwin' ? 'libaires_sdk_napi.dylib' : 'libaires_sdk_napi.so'), '../native/aires-sdk-napi.node')\"",
+    "prepublishOnly": "bun run build:native:linux",
+    "build:native:linux": "bash scripts/build-linux.sh",
     "test": "bun test"
   },
   "publishConfig": {
