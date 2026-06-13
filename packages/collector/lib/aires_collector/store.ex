@@ -67,6 +67,7 @@ defmodule AiresCollector.Store do
   defp do_insert(conn, rows) do
     # Scalar columns (string, int, enum)
     scalar_columns = [
+      :timestamp,
       :service,
       :environment,
       :severity,
@@ -114,6 +115,7 @@ defmodule AiresCollector.Store do
             val = Map.get(row, col)
 
             case col do
+              :timestamp -> format_timestamp(val)
               :source_line -> to_string(val || 0)
               :http_status_code -> to_string(val || 0)
               :http_duration_ms -> to_string(val || 0)
@@ -171,6 +173,22 @@ defmodule AiresCollector.Store do
   end
 
   defp format_array(_), do: "[]"
+
+  # Render a DateTime as a ClickHouse DateTime64(9) literal. Falls back to the
+  # server clock when the SDK didn't supply a usable timestamp.
+  defp format_timestamp(%DateTime{} = dt) do
+    "'#{Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")}.#{nanosecond_str(dt)}'"
+  end
+
+  defp format_timestamp(_), do: "now64(9)"
+
+  defp nanosecond_str(%DateTime{microsecond: {us, _precision}}) do
+    # Map(String, String) stores microsecond precision; pad to 9 digits (ns).
+    us
+    |> Integer.to_string()
+    |> String.pad_leading(6, "0")
+    |> Kernel.<>("000")
+  end
 
   defp escape_string(nil), do: "''"
   defp escape_string(val) when is_binary(val), do: "'#{String.replace(val, "'", "\\'")}'"

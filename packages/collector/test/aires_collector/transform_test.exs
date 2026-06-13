@@ -68,6 +68,21 @@ defmodule AiresCollector.TransformTest do
     assert Transform.event_to_row(%{severity: 99}, "", "").severity == "unspecified"
   end
 
+  test "severity mapping handles protobuf enum atoms (real wire format)" do
+    # protobuf-elixir decodes enum fields to atoms, not integers. This is the
+    # form that actually arrives over the wire and was previously falling
+    # through to "unspecified", losing all severity information.
+    assert Transform.event_to_row(%{severity: :SEVERITY_UNSPECIFIED}, "", "").severity ==
+             "unspecified"
+
+    assert Transform.event_to_row(%{severity: :TRACE}, "", "").severity == "trace"
+    assert Transform.event_to_row(%{severity: :DEBUG}, "", "").severity == "debug"
+    assert Transform.event_to_row(%{severity: :INFO}, "", "").severity == "info"
+    assert Transform.event_to_row(%{severity: :WARN}, "", "").severity == "warn"
+    assert Transform.event_to_row(%{severity: :ERROR}, "", "").severity == "error"
+    assert Transform.event_to_row(%{severity: :FATAL}, "", "").severity == "fatal"
+  end
+
   test "nil fields default gracefully" do
     row = Transform.event_to_row(%{}, "", "")
 

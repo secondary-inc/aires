@@ -62,6 +62,16 @@ defmodule AiresCollector.Transform do
     |> DateTime.add(nanoseconds, :nanosecond)
   end
 
+  # protobuf-elixir decodes enum fields to their atom names (e.g. :INFO), not
+  # integers, so we match those first. Integer + string clauses are kept as a
+  # defensive fallback in case a raw value ever comes through.
+  defp severity_to_string(:SEVERITY_UNSPECIFIED), do: "unspecified"
+  defp severity_to_string(:TRACE), do: "trace"
+  defp severity_to_string(:DEBUG), do: "debug"
+  defp severity_to_string(:INFO), do: "info"
+  defp severity_to_string(:WARN), do: "warn"
+  defp severity_to_string(:ERROR), do: "error"
+  defp severity_to_string(:FATAL), do: "fatal"
   defp severity_to_string(0), do: "unspecified"
   defp severity_to_string(1), do: "trace"
   defp severity_to_string(2), do: "debug"
@@ -69,6 +79,7 @@ defmodule AiresCollector.Transform do
   defp severity_to_string(4), do: "warn"
   defp severity_to_string(5), do: "error"
   defp severity_to_string(6), do: "fatal"
+  defp severity_to_string(s) when is_binary(s), do: String.downcase(s)
   defp severity_to_string(_), do: "unspecified"
 
   # Normalize proto map fields (may arrive as list of Entry structs or plain maps)
