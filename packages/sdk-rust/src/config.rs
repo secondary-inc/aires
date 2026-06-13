@@ -38,7 +38,9 @@ pub struct AiresConfigBuilder {
     batch_timeout: Duration,
     queue_capacity: usize,
     flush_timeout: Duration,
-    tls: bool,
+    /// `None` = derive from the endpoint scheme (`https://` → on, `http://` → off).
+    /// `Some(_)` = caller has explicitly opted in/out and we honor it verbatim.
+    tls: Option<bool>,
     api_key: Option<String>,
     max_retries: u32,
     retry_backoff: Duration,
@@ -54,7 +56,7 @@ impl AiresConfigBuilder {
             batch_timeout: Duration::from_millis(500),
             queue_capacity: 8192,
             flush_timeout: Duration::from_secs(5),
-            tls: true,
+            tls: None,
             api_key: None,
             max_retries: 3,
             retry_backoff: Duration::from_millis(100),
@@ -97,7 +99,7 @@ impl AiresConfigBuilder {
     }
 
     pub fn tls(mut self, enabled: bool) -> Self {
-        self.tls = enabled;
+        self.tls = Some(enabled);
         self
     }
 
@@ -133,6 +135,13 @@ impl AiresConfigBuilder {
             return Err(Error::Config("queue_capacity must be >= batch_size".into()));
         }
 
+        // Resolve TLS. If the caller didn't explicitly choose, derive it from the
+        // endpoint scheme like every other gRPC client does: `https://` ⇒ TLS,
+        // anything else (`http://`, bare host) ⇒ plaintext h2c. Defaulting to TLS
+        // unconditionally was silently breaking every plaintext `http://collector`
+        // deployment — the handshake failed and the batch worker died on connect.
+        let tls = self.tls.unwrap_or_else(|| tls_from_endpoint(&endpoint));
+
         Ok(AiresConfig {
             service,
             environment: self.environment.unwrap_or_else(|| "production".into()),
@@ -141,7 +150,7 @@ impl AiresConfigBuilder {
             batch_timeout: self.batch_timeout,
             queue_capacity: self.queue_capacity,
             flush_timeout: self.flush_timeout,
-            tls: self.tls,
+            tls,
             api_key: self.api_key,
             max_retries: self.max_retries,
             retry_backoff: self.retry_backoff,
@@ -153,6 +162,16 @@ impl Default for AiresConfigBuilder {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Decide whether to use TLS based purely on the endpoint URL scheme.
+/// Only an explicit `https://` prefix enables TLS; `http://` and schemeless
+/// endpoints (e.g. `collector:4317`, `localhost:4317`) use plaintext h2c.
+pub(crate) fn tls_from_endpoint(endpoint: &str) -> bool {
+    endpoint
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with("https://")
 }
 
 #[cfg(test)]
@@ -203,5 +222,68 @@ mod tests {
             .unwrap_err();
 
         assert!(err.to_string().contains("batch_size"));
+    }
+
+    #[test]
+    fn tls_derived_off_for_http_endpoint() {
+        let config = AiresConfigBuilder::new()
+            .service("test")
+            .endpoint("http://collector.aires.svc.cluster.local:4317")
+            .build()
+            .unwrap();
+
+        assert!(!config.tls, "http:// endpoints must use plaintext");
+    }
+
+    #[test]
+    fn tls_derived_on_for_https_endpoint() {
+        let config = AiresConfigBuilder::new()
+            .service("test")
+            .endpoint("https://collector.example.com:443")
+            .build()
+            .unwrap();
+
+        assert!(config.tls, "https:// endpoints must use TLS");
+    }
+
+    #[test]
+    fn tls_derived_off_for_schemeless_endpoint() {
+        let config = AiresConfigBuilder::new()
+            .service("test")
+            .endpoint("collector:4317")
+            .build()
+            .unwrap();
+
+        assert!(!config.tls, "schemeless endpoints default to plaintext");
+    }
+
+    #[test]
+    fn explicit_tls_overrides_scheme() {
+        // Caller can still force TLS on a non-https endpoint if they really want.
+        let on = AiresConfigBuilder::new()
+            .service("test")
+            .endpoint("http://collector:4317")
+            .tls(true)
+            .build()
+            .unwrap();
+        assert!(on.tls);
+
+        // ...and force plaintext on an https endpoint.
+        let off = AiresConfigBuilder::new()
+            .service("test")
+            .endpoint("https://collector:4317")
+            .tls(false)
+            .build()
+            .unwrap();
+        assert!(!off.tls);
+    }
+
+    #[test]
+    fn tls_from_endpoint_helper() {
+        assert!(tls_from_endpoint("https://x:443"));
+        assert!(tls_from_endpoint("HTTPS://x:443"));
+        assert!(!tls_from_endpoint("http://x:4317"));
+        assert!(!tls_from_endpoint("x:4317"));
+        assert!(!tls_from_endpoint("localhost:4317"));
     }
 }
