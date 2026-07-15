@@ -464,5 +464,6 @@ export const airesPlugin = (opts?: PluginOptions) => {
 // ── Convenience re-exports ──────────────────────────────────────────────────
 
 export * as query from "./query"
+export type { QueryEvent, SearchParams, TailParams, MintParams, MintResult, Client as QueryClient, ClientOptions as QueryClientOptions } from "./query"
 export { log as default }
 export type { Attrs, Level, Logger, SpanHandle, InitOptions, PluginOptions }
