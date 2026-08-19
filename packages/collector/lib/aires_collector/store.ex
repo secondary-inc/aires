@@ -11,8 +11,13 @@ defmodule AiresCollector.Store do
     GenServer.call(__MODULE__, {:insert_batch, rows}, 30_000)
   end
 
-  @doc "Returns the shared Ch connection for read queries."
-  def connection, do: GenServer.call(__MODULE__, :connection)
+  @doc "Returns the shared Ch pool. Reads must not go through the insert GenServer."
+  def connection do
+    case :persistent_term.get({__MODULE__, :conn}, nil) do
+      nil -> GenServer.call(__MODULE__, :connection)
+      conn -> conn
+    end
+  end
 
   @impl true
   def init(_) do
@@ -40,9 +45,13 @@ defmodule AiresCollector.Store do
            port: port,
            database: database,
            username: username,
-           password: password
+           password: password,
+           pool_size: 10,
+           queue_target: 5_000,
+           queue_interval: 10_000
          ) do
       {:ok, conn} ->
+        :persistent_term.put({__MODULE__, :conn}, conn)
         Logger.info("[Store] Connected to ClickHouse at #{resolved_host}:#{port}/#{database}")
         {:ok, %{conn: conn}}
 

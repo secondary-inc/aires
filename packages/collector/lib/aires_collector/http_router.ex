@@ -2,11 +2,13 @@ defmodule AiresCollector.HttpRouter do
   @moduledoc """
   HTTP front-end for the aires query API.
 
-  Three routes:
+  Four routes:
     * `POST /auth/mint` — body { root_key, scope: [...], ttl_hours }
                           → { token, exp }
     * `POST /query/search` — body { service?, level?, from?, to?, ... }
                              → { events: [...] }
+    * `POST /query/metrics` — body { service?, names?, from?, to? }
+                              → { points: [{name, t, v}] }
     * `POST /query/tail` — body { service, since?, level?, limit?, interval_ms? }
                            → SSE stream of events
 
@@ -61,6 +63,19 @@ defmodule AiresCollector.HttpRouter do
          {:ok, params} <- parse_params(conn.body_params, payload),
          {:ok, events} <- AiresCollector.Query.search(params) do
       send_json(conn, 200, %{events: events})
+    else
+      {:error, status, reason} -> send_json(conn, status, %{error: reason})
+      {:error, reason} -> send_json(conn, 500, %{error: reason})
+    end
+  end
+
+  # ── /query/metrics ──────────────────────────────────────────────────────
+
+  post "/query/metrics" do
+    with {:ok, payload} <- authorize(conn),
+         {:ok, params} <- parse_params(conn.body_params, payload),
+         {:ok, points} <- AiresCollector.Query.metrics(Map.put(params, :metric_names, conn.body_params["names"] || [])) do
+      send_json(conn, 200, %{points: points})
     else
       {:error, status, reason} -> send_json(conn, status, %{error: reason})
       {:error, reason} -> send_json(conn, 500, %{error: reason})

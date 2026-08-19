@@ -25,7 +25,8 @@ defmodule AiresCollector.Query do
           optional(:to) => DateTime.t() | nil,
           optional(:message_contains) => String.t() | nil,
           optional(:trace_id) => String.t() | nil,
-          optional(:limit) => pos_integer()
+          optional(:limit) => pos_integer(),
+          optional(:metric_names) => [String.t()]
         }
 
   @type event :: %{
@@ -107,6 +108,53 @@ defmodule AiresCollector.Query do
       err -> err
     end
   end
+
+  @doc """
+  Minute-bucket averages for system/metric events. Used by Palace graphs.
+  Returns `{ok, [%{name, t, v}]}`.
+  """
+  @spec metrics(search_params()) :: {:ok, [map()]} | {:error, String.t()}
+  def metrics(params) do
+    {where, sql_params} = build_where(params)
+    names = params[:metric_names] || []
+
+    {where, sql_params} =
+      case names do
+        [] ->
+          {append_clause(where, "metric_name != ''"), sql_params}
+
+        list ->
+          arr = list |> Enum.map(&"'#{escape(&1)}'") |> Enum.join(",")
+          {append_clause(where, "metric_name IN (#{arr})"), sql_params}
+      end
+
+    sql = """
+    SELECT
+      metric_name,
+      toString(toStartOfMinute(timestamp)) AS bucket,
+      avg(metric_value) AS v
+    FROM events
+    #{where}
+    GROUP BY metric_name, bucket
+    ORDER BY bucket ASC
+    LIMIT #{@max_limit}
+    """
+
+    conn = AiresCollector.Store.connection()
+
+    try do
+      {:ok, result} = Ch.query(conn, sql, sql_params)
+      {:ok, rows_to_metrics(result)}
+    rescue
+      e ->
+        Logger.error("[Query] metrics failed: #{Exception.message(e)}")
+        {:error, Exception.message(e)}
+    end
+  end
+
+  defp append_clause("", extra), do: "WHERE " <> extra
+  defp append_clause("WHERE " <> rest, extra), do: "WHERE " <> rest <> " AND " <> extra
+  defp append_clause(where, extra), do: where <> " AND " <> extra
 
   # ── Internals ───────────────────────────────────────────────────────────
 
@@ -271,6 +319,26 @@ defmodule AiresCollector.Query do
         }
     end)
   end
+
+  defp rows_to_metrics(%Ch.Result{rows: rows}) do
+    Enum.map(rows, fn [name, bucket, value] ->
+      %{
+        name: name,
+        t: bucket,
+        v: metric_number(value)
+      }
+    end)
+  end
+
+  defp metric_number(v) when is_number(v), do: v * 1.0
+  defp metric_number(%Decimal{} = v), do: Decimal.to_float(v)
+  defp metric_number(v) when is_binary(v) do
+    case Float.parse(v) do
+      {n, _} -> n
+      :error -> 0.0
+    end
+  end
+  defp metric_number(_), do: 0.0
 
   defp normalize_map(nil), do: %{}
   defp normalize_map(m) when is_map(m), do: m
