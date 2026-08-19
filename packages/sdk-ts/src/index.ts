@@ -1,4 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+import { createRequire } from "node:module"
+import { fileURLToPath } from "node:url"
+import { dirname, join } from "node:path"
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -229,14 +232,12 @@ export const aires = {
 
     // Try native addon
     try {
-      // Resolve via import.meta.url so it works regardless of cwd / bundling.
-      const { createRequire } = require("node:module")
-      const { fileURLToPath } = require("node:url")
-      const { join, dirname } = require("node:path")
+      // Resolve via import.meta.url so it works regardless of cwd / ESM.
+      if (!opts.endpoint) throw new Error("collector endpoint is required")
       const req = createRequire(import.meta.url)
       const here = dirname(fileURLToPath(import.meta.url))
-      _native = req(join(here, "..", "native", "aires-sdk-napi.node"))
-      _native.init({
+      const native = req(join(here, "..", "native", "aires-sdk-napi.node"))
+      native.init({
         service: opts.service,
         endpoint: opts.endpoint,
         environment: opts.environment,
@@ -245,7 +246,9 @@ export const aires = {
         tls: opts.tls,
         api_key: opts.apiKey,
       })
+      _native = native
     } catch (err) {
+      _native = null
       // Native not available — use stdout fallback. Surface a one-time
       // warning so users know their events aren't reaching the collector.
       const msg = err instanceof Error ? err.message : String(err)
