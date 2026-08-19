@@ -181,10 +181,10 @@ const createLogger = (base: Attrs = {}): Logger => {
       }
 
       _native.metric(name, value, {
-        trace_id: promoted.traceId,
-        span_id: promoted.spanId,
-        session_id: promoted.sessionId,
-        user_id: promoted.userId,
+        traceId: promoted.traceId,
+        spanId: promoted.spanId,
+        sessionId: promoted.sessionId,
+        userId: promoted.userId,
         attributes: attr,
       })
       return
@@ -241,10 +241,10 @@ export const aires = {
         service: opts.service,
         endpoint: opts.endpoint,
         environment: opts.environment,
-        batch_size: opts.batchSize,
-        queue_capacity: opts.queueCapacity,
+        batchSize: opts.batchSize,
+        queueCapacity: opts.queueCapacity,
         tls: opts.tls,
-        api_key: opts.apiKey,
+        apiKey: opts.apiKey,
       })
       _native = native
     } catch (err) {
@@ -283,16 +283,16 @@ export const aires = {
         }
 
         const nativeOpts: any = {
-          trace_id: promoted.traceId,
-          span_id: promoted.spanId,
-          session_id: promoted.sessionId,
-          user_id: promoted.userId,
-          agent_id: agentId,
+          traceId: promoted.traceId,
+          spanId: promoted.spanId,
+          sessionId: promoted.sessionId,
+          userId: promoted.userId,
+          agentId,
           category,
           kind,
           attributes: attr,
-          source_file: event.file,
-          source_line: event.line,
+          sourceFile: event.file,
+          sourceLine: event.line,
         }
 
         switch (event.level) {
