@@ -17,7 +17,10 @@ RUN mix deps.get --only prod
 RUN mix compile
 RUN mix release
 
-# Runtime stage
+# Generate the release on the native builder, but replace its architecture-
+# specific ERTS with the runtime from the requested target platform.
+FROM elixir:1.17-otp-27-slim AS target-erts
+
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y libstdc++6 openssl libncurses6 locales netcat-openbsd \
@@ -27,6 +30,8 @@ RUN apt-get update && apt-get install -y libstdc++6 openssl libncurses6 locales 
 WORKDIR /app
 
 COPY --from=build /app/_build/prod/rel/aires_collector ./
+RUN rm -rf ./erts-*
+COPY --from=target-erts /usr/local/lib/erlang/erts-15.2.7.12/ ./erts-15.2.7.12/
 
 ENV MIX_ENV=prod
 ENV LANG=en_US.UTF-8
