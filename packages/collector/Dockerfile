@@ -32,6 +32,7 @@ WORKDIR /app
 COPY --from=build /app/_build/prod/rel/aires_collector ./
 RUN rm -rf ./erts-*
 COPY --from=target-erts /usr/local/lib/erlang/erts-15.2.7.12/ ./erts-15.2.7.12/
+COPY --from=target-erts /usr/local/lib/erlang/lib/ ./lib/
 
 ENV MIX_ENV=prod
 ENV LANG=en_US.UTF-8
