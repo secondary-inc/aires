@@ -1,5 +1,6 @@
-# Build stage
-FROM elixir:1.17-otp-27-slim AS build
+# Compile BEAM bytecode on the builder's native architecture. BEAM bytecode is
+# portable; the target-architecture Erlang runtime is supplied below.
+FROM --platform=$BUILDPLATFORM elixir:1.17-otp-27-slim AS build
 
 RUN apt-get update && apt-get install -y build-essential git && rm -rf /var/lib/apt/lists/*
 
