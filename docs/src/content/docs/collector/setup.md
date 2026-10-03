@@ -74,6 +74,27 @@ docker compose up -d
 
 ## Building from Source
 
+### Cross-platform container builds
+
+The Dockerfile compiles BEAM bytecode on the builder's native architecture and copies ERTS and OTP libraries from the target-platform Elixir image. Both stages use the same Elixir tag. The ERTS directory name is discovered from that image rather than hard-coded, because OTP patch updates change it. Keep the target OTP libraries too; replacing only ERTS leaves native libraries such as `asn1rt_nif` on the builder's architecture.
+
+To check a Linux/amd64 release locally without pushing it:
+
+```bash
+docker buildx build --platform linux/amd64 --load -t aires-collector:check packages/collector
+docker run --rm --platform linux/amd64 aires-collector:check bin/aires_collector eval '
+  version = List.to_string(:erlang.system_info(:version))
+  [expected | _] = String.split(File.read!("releases/start_erl.data"))
+  true = version == expected
+  Enum.each([:crypto, :asn1rt_nif], &Code.ensure_loaded!/1)
+  32 = byte_size(:crypto.strong_rand_bytes(32))
+  {:ok, _} = Application.ensure_all_started(:ssl)
+  IO.puts("Runtime and native libraries verified")
+'
+```
+
+Run these commands from the Aires repository root. The Elixir tag is floating, so this build tolerates OTP patch changes but is not a digest-pinned reproducible build.
+
 ### Prerequisites
 
 - **Erlang/OTP 26+**: The BEAM VM
