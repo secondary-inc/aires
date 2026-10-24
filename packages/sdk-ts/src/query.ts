@@ -159,7 +159,9 @@ const tailIterator = (
 ): AsyncIterator<QueryEvent> => {
   let buffered: QueryEvent[] = []
   let done = false
-  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+  // Use only the standard operations required here. Bun adds readMany to its
+  // global reader type, but fetch may expose a standards-only reader.
+  let reader: Pick<ReadableStreamDefaultReader<Uint8Array>, "read" | "cancel"> | null = null
   let leftover = ""
   const decoder = new TextDecoder()
   let initPromise: Promise<void> | null = null
