@@ -4,7 +4,9 @@ use arena_alligator::FixedArena;
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use prost::Message;
 
-// Include proto definitions
+// Generated tonic clients return tonic::Status by value; keep this exception
+// inside generated bindings rather than relaxing handwritten benchmark checks.
+#[allow(clippy::result_large_err)]
 mod proto {
     tonic::include_proto!("aires.v1");
 }
