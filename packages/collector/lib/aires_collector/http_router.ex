@@ -74,7 +74,10 @@ defmodule AiresCollector.HttpRouter do
   post "/query/metrics" do
     with {:ok, payload} <- authorize(conn),
          {:ok, params} <- parse_params(conn.body_params, payload),
-         {:ok, points} <- AiresCollector.Query.metrics(Map.put(params, :metric_names, conn.body_params["names"] || [])) do
+         {:ok, points} <-
+           AiresCollector.Query.metrics(
+             Map.put(params, :metric_names, conn.body_params["names"] || [])
+           ) do
       send_json(conn, 200, %{points: points})
     else
       {:error, status, reason} -> send_json(conn, status, %{error: reason})
