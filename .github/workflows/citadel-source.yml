@@ -1,0 +1,28 @@
+name: Citadel source validation
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  regressions:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.id == 1203163802 && github.event.pull_request.base.repo.id == 1203163802 && github.event.pull_request.base.ref == 'main'
+    runs-on:
+      group: Citadel isolated 1203163802
+      labels: citadel-isolated
+    timeout-minutes: 30
+    steps:
+      - name: Citadel base ${{ github.event.pull_request.base.sha }}
+        run: /usr/bin/true
+      - name: Citadel head ${{ github.event.pull_request.head.sha }}
+        run: /usr/bin/true
+      - name: Checkout exact reviewed head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+      - name: Source-specific immutable checks
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: /usr/local/bin/bun --no-env-file /opt/citadel/check.ts
