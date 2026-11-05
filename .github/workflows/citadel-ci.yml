@@ -1,0 +1,13 @@
+name: Citadel reviewed source
+on:
+  pull_request:
+    branches: ['main']
+permissions:
+  contents: read
+concurrency:
+  group: citadel-source-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  source:
+    if: github.event.pull_request.head.repo.id == 1203163802 && github.event.pull_request.base.repo.id == 1203163802
+    uses: secondary-inc/aires/.github/workflows/citadel-source.yml@6b5e96f833637b888487bd51f30a8b48b9bac6b7
