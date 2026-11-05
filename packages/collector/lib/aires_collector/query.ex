@@ -332,12 +332,14 @@ defmodule AiresCollector.Query do
 
   defp metric_number(v) when is_number(v), do: v * 1.0
   defp metric_number(%Decimal{} = v), do: Decimal.to_float(v)
+
   defp metric_number(v) when is_binary(v) do
     case Float.parse(v) do
       {n, _} -> n
       :error -> 0.0
     end
   end
+
   defp metric_number(_), do: 0.0
 
   defp normalize_map(nil), do: %{}
